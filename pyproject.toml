@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools","setuptools-scm", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name        = "espspapy"
+dynamic     = ["version"]
+license     = "GPL-3.0-or-later"
+description = "Wi-Fi enrollment (ESP-Touch) and local control of ESP modules"
+readme      = "README.md"
+keywords    = ["esp", "esptouch", "async"]
+classifiers = [
+    "Programming Language :: Python",
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Topic :: Home Automation",
+]
+requires-python = ">=3.14.0"
+dependencies    = []
+
+[project.optional-dependencies]
+dev = [
+    "prek",
+    "ruff",
+    "mypy",
+    "pytest",
+    "pytest-asyncio",
+]
+
+[project.scripts]
+espspapy = "espspapy.cli:main"
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0"
+
+[tool.setuptools]
+platforms = ["any"]
+
+[tool.setuptools.packages.find]
+include = ["espspapy*"]
+
+[tool.setuptools.package-data]
+espspapy = ["py.typed"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.mypy]
+strict = true
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+combine-as-imports = true
+split-on-trailing-comma = false

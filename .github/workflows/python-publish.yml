@@ -1,0 +1,33 @@
+name: Upload Python Package
+
+on:
+  release:
+    types: ["published"]
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy to PyPi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: 📥 Checkout the repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.14"
+
+      - name: Build package
+        run: uv build
+
+      - name: 🚀 Publish to PyPi
+        uses: pypa/gh-action-pypi-publish@v1.14.3
+        with:
+          attestations: false
