@@ -14,7 +14,7 @@ import time
 from .discovery import async_discover
 from .esptouch import async_pair
 from .exceptions import SpaException
-from .helpers import get_local_ip
+from .helpers import get_current_bssid, get_local_ip
 from .models import Device, SpaInfo, SpaStatus
 from .spa import Spa
 
@@ -67,8 +67,12 @@ async def _run(args: argparse.Namespace) -> int:
         if password is None:
             password = getpass.getpass(f"Wi-Fi password for {args.ssid}: ")
         local_ip = args.local_ip or get_local_ip()
+        bssid = args.bssid or get_current_bssid()
+        if bssid is None:
+            print("No 2.4 GHz Wi-Fi connection here, use --bssid", file=sys.stderr)
+            return 2
         print(f"Pairing {args.ssid} from {local_ip}…", file=sys.stderr)
-        result = await async_pair(args.ssid, password, local_ip, bssid=args.bssid)
+        result = await async_pair(args.ssid, password, local_ip, bssid=bssid)
         print(f"Spa module {result.mac} joined with IP {result.ip}", file=sys.stderr)
         args.host = result.ip
 
@@ -114,7 +118,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     pair = sub.add_parser("pair", help="connect a spa to the Wi-Fi (ESP-Touch)")
     pair.add_argument("--ssid", required=True, help="2.4 GHz network")
-    pair.add_argument("--bssid", help="access point MAC address (optional)")
+    pair.add_argument(
+        "--bssid", help="2.4 GHz access point MAC address (detected if on Wi-Fi)"
+    )
     pair.add_argument("--password", help="Wi-Fi password (prompted if omitted)")
     pair.add_argument("--local-ip", help="IP address of this host")
 

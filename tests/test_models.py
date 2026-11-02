@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import ipaddress
+import struct
 
 import pytest
 
 from espspapy import Device, InvalidFrameError, SpaInfo, SpaStatus
 from espspapy.helpers import (
     checksum,
+    get_current_bssid,
     get_local_ip,
     parse_bssid,
     with_checksum,
@@ -101,3 +104,57 @@ def test_spa_info() -> None:
 def test_get_local_ip() -> None:
     """The local address is a valid IPv4 address."""
     ipaddress.IPv4Address(get_local_ip())
+
+
+def _fake_ioctl(
+    bssid: str, mantissa: int, exponent: int
+) -> Callable[[int, int, bytes], bytes]:
+    """Return an ioctl answering SIOCGIWAP and SIOCGIWFREQ."""
+
+    def ioctl(fd: int, request: int, buffer: bytes) -> bytes:
+        if request == 0x8B15:
+            union = b"\x01\x00" + bytes.fromhex(bssid.replace(":", ""))
+        else:
+            union = struct.pack("=ih", mantissa, exponent)
+        return buffer[:16] + union.ljust(16, b"\0")
+
+    return ioctl
+
+
+@pytest.mark.parametrize(
+    ("bssid", "mantissa", "exponent", "expected"),
+    [
+        ("00:00:1a:2b:3c:4d", 2437, 6, "00:00:1a:2b:3c:4d"),  # 2437 MHz
+        ("00:00:1a:2b:3c:4d", 6, 0, "00:00:1a:2b:3c:4d"),  # channel 6
+        ("00:00:1a:2b:3c:4d", 5180, 6, None),  # 5 GHz
+        ("00:00:1a:2b:3c:4d", 36, 0, None),  # channel 36
+        ("00:00:00:00:00:00", 2437, 6, None),  # not associated
+        ("44:44:44:44:44:44", 2437, 6, None),  # not associated
+    ],
+)
+def test_get_current_bssid(
+    monkeypatch: pytest.MonkeyPatch,
+    bssid: str,
+    mantissa: int,
+    exponent: int,
+    expected: str | None,
+) -> None:
+    """BSSID of the 2.4 GHz access point read from Wireless Extensions."""
+    fcntl = pytest.importorskip("fcntl")
+    monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.setattr(fcntl, "ioctl", _fake_ioctl(bssid, mantissa, exponent))
+    assert get_current_bssid("wlan0") == expected
+
+
+def test_get_current_bssid_no_wifi(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No Wi-Fi interface or failing ioctl: no BSSID."""
+    fcntl = pytest.importorskip("fcntl")
+
+    def ioctl(fd: int, request: int, buffer: bytes) -> bytes:
+        raise OSError(95, "Operation not supported")
+
+    monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.setattr(fcntl, "ioctl", ioctl)
+    assert get_current_bssid("eth0") is None
+    monkeypatch.setattr("espspapy.helpers._wireless_interfaces", list)
+    assert get_current_bssid() is None

@@ -34,8 +34,8 @@ async def main() -> None:
     result = await async_pair(
         ssid="MyWifi",  # 2.4 GHz network
         password="secret",
+        bssid="00:00:1A:2B:3C:4D",  # 2.4 GHz access point to join
         # local_ip="192.168.1.10",  # optional: this host, detected by default
-        # bssid="00:00:1A:2B:3C:4D",  # optional: 2.4 GHz access point to join
     )
     print(result.mac, result.ip)
 
@@ -73,8 +73,9 @@ before driving the module, and the other way round.
 
 | Call                                                    | Description                                                               |
 | ------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `async_pair(ssid, password, local_ip=None, bssid=None)` | Wi-Fi pairing, returns `PairingResult(mac, ip)`                           |
+| `async_pair(ssid, password, local_ip=None, *, bssid)`   | Wi-Fi pairing, returns `PairingResult(mac, ip)`                           |
 | `get_local_ip()`                                        | IP address of this host on the LAN                                        |
+| `get_current_bssid(interface=None)`                     | BSSID of the 2.4 GHz access point this host is on (Linux), else `None`    |
 | `async_discover(timeout)`                               | LAN discovery, returns `list[SpaInfo]`                                    |
 | `Spa(host).async_identify()`                            | `SpaInfo(uid, ip, dtype)`                                                 |
 | `Spa(host).async_get_status()`                          | `SpaStatus`                                                               |
@@ -106,8 +107,8 @@ await spa.async_set_timers(Device.HEATER, [])  # clear
 
 ```bash
 espspapy discover
-espspapy pair --ssid MyWifi
-espspapy pair --ssid MyWifi --bssid 00:00:1A:2B:3C:4D  # force an access point
+espspapy pair --ssid MyWifi  # BSSID detected if this host is on 2.4 GHz Wi-Fi
+espspapy pair --ssid MyWifi --bssid 00:00:1A:2B:3C:4D
 espspapy status 192.168.1.10
 espspapy monitor 192.168.1.10 --interval 10
 espspapy bubbles 192.168.1.10 on

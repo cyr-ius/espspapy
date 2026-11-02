@@ -49,17 +49,10 @@ def test_packets() -> None:
     assert set(b"".join(datum)) == {ord("1")}
 
 
-def test_packets_without_bssid() -> None:
-    """Without BSSID, a zero BSSID is encoded."""
-    _, datum = build_packets("milkyway", "secret", "1.2.3.4")
-    _, zero = build_packets("milkyway", "secret", "1.2.3.4", "00:00:00:00:00:00")
-    assert datum == zero
-
-
 def test_too_long() -> None:
     """SSID + password over the protocol limit."""
     with pytest.raises(ValueError):
-        build_packets("s" * 32, "p" * 90, "1.2.3.4")
+        build_packets("s" * 32, "p" * 90, "1.2.3.4", "00:00:1A:2B:3C:4D")
 
 
 def test_parse_real_answer() -> None:
@@ -123,6 +116,7 @@ async def test_async_pair_no_answer() -> None:
             "milkyway",
             "secret",
             "127.0.0.1",
+            bssid="00:00:1A:2B:3C:4D",
             send_timeout=0.1,
             receive_timeout=0.1,
             target=("127.0.0.1", _free_udp_port()),

@@ -28,7 +28,6 @@ from .const import (
     ESPTOUCH_RESULT_LEN,
     ESPTOUCH_SEND_TIMEOUT,
     ESPTOUCH_TARGET_PORT,
-    ESPTOUCH_UNKNOWN_BSSID,
 )
 from .exceptions import PairingError
 from .helpers import get_local_ip, parse_bssid
@@ -99,16 +98,15 @@ def build_datum_lengths(
 
 
 def build_packets(
-    ssid: str, password: str, local_ip: str, bssid: str | None = None
+    ssid: str, password: str, local_ip: str, bssid: str
 ) -> tuple[list[bytes], list[bytes]]:
     """Return the guide and data packets to broadcast."""
-    parsed_bssid = parse_bssid(bssid) if bssid else ESPTOUCH_UNKNOWN_BSSID
     guide = [ESPTOUCH_PAYLOAD_BYTE * length for length in ESPTOUCH_GUIDE_CODES]
     datum = [
         ESPTOUCH_PAYLOAD_BYTE * length
         for length in build_datum_lengths(
             ssid.encode(),
-            parsed_bssid,
+            parse_bssid(bssid),
             password.encode(),
             ipaddress.IPv4Address(local_ip).packed,
         )
@@ -147,7 +145,7 @@ async def async_pair(
     password: str,
     local_ip: str | None = None,
     *,
-    bssid: str | None = None,
+    bssid: str,
     send_timeout: float = ESPTOUCH_SEND_TIMEOUT,
     receive_timeout: float = ESPTOUCH_RECEIVE_TIMEOUT,
     target: tuple[str, int] = (BROADCAST_ADDR, ESPTOUCH_TARGET_PORT),
@@ -156,8 +154,9 @@ async def async_pair(
     """Send the Wi-Fi credentials to a spa in pairing mode.
 
     ``local_ip`` is the address of this host on that network (sent to the spa
-    so that it can answer), detected when omitted. ``bssid``, the MAC address of the 2.4 GHz access
-    point, is optional: a zero BSSID is sent when it is unknown.
+    so that it can answer), detected when omitted. ``bssid`` is the MAC address
+    of the 2.4 GHz access point: the module joins that access point, so it must
+    be the real one (on a dual-band box, the 2.4 GHz radio, not the 5 GHz one).
     Raises :class:`PairingError` without answer.
     """
     if local_ip is None:

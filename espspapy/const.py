@@ -57,4 +57,9 @@ ESPTOUCH_GUIDE_CODES = (515, 514, 513, 512)
 ESPTOUCH_DATA_OFFSET = 40
 ESPTOUCH_MAX_INDEX = 127
 ESPTOUCH_PAYLOAD_BYTE = b"1"
-ESPTOUCH_UNKNOWN_BSSID = bytes(6)
+
+# Wireless Extensions ioctls (linux/wireless.h), served by every cfg80211 driver.
+SIOCGIWAP = 0x8B15
+SIOCGIWFREQ = 0x8B05
+IWREQ_SIZE = 32
+SYS_CLASS_NET = "/sys/class/net"

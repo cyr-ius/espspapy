@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
 import socket
+import struct
+import sys
+
+from .const import IWREQ_SIZE, SIOCGIWAP, SIOCGIWFREQ, SYS_CLASS_NET
 
 
 def checksum(frame: str) -> str:
@@ -43,3 +49,59 @@ def get_local_ip() -> str:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.connect(("10.255.255.255", 1))
         return str(sock.getsockname()[0])
+
+
+def _wireless_interfaces() -> list[str]:
+    """Return the Wi-Fi interfaces of this host (Linux)."""
+    try:
+        names = sorted(os.listdir(SYS_CLASS_NET))
+    except OSError:
+        return []
+    return [
+        name
+        for name in names
+        if os.path.exists(os.path.join(SYS_CLASS_NET, name, "wireless"))
+        or os.path.exists(os.path.join(SYS_CLASS_NET, name, "phy80211"))
+    ]
+
+
+def _iwreq(sock: socket.socket, request: int, interface: str) -> bytes:
+    """Run a Wireless Extensions ioctl and return the ``iwreq`` union."""
+    import fcntl  # Unix only
+
+    buffer = interface.encode()[:15].ljust(IWREQ_SIZE, b"\0")
+    return fcntl.ioctl(sock.fileno(), request, buffer)[16:]
+
+
+def _is_2ghz(mantissa: int, exponent: int) -> bool:
+    """Return True for a 2.4 GHz ``iw_freq`` (frequency or channel number)."""
+    if exponent == 0 and mantissa <= 1000:
+        return 1 <= mantissa <= 14
+    return 2.4e9 <= mantissa * 10.0**exponent < 2.5e9
+
+
+def get_current_bssid(interface: str | None = None) -> str | None:
+    """Return the BSSID of the 2.4 GHz access point this host is connected to.
+
+    This is what the phone apps send with ESP-Touch: the access point the phone
+    is connected to. Only works on Linux, when this host is itself on Wi-Fi.
+    Every Wi-Fi interface is tried unless ``interface`` is given. Returns
+    ``None`` when no interface is connected to a 2.4 GHz access point (wired
+    host, 5 GHz connection, other OS): the BSSID must then be asked for.
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+    interfaces = [interface] if interface else _wireless_interfaces()
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        for name in interfaces:
+            with contextlib.suppress(OSError):
+                # struct sockaddr: family (2 bytes), then the MAC address.
+                bssid = _iwreq(sock, SIOCGIWAP, name)[2:8]
+                # struct iw_freq: mantissa (s32), exponent (s16).
+                mantissa, exponent = struct.unpack(
+                    "=ih", _iwreq(sock, SIOCGIWFREQ, name)[:6]
+                )
+                # Not associated: zero, broadcast or 44:44:… address.
+                if len(set(bssid)) > 1 and _is_2ghz(mantissa, exponent):
+                    return bssid.hex(":")
+    return None

@@ -11,7 +11,7 @@ from .exceptions import (
     SpaNotRespondingError,
     TimeoutExceededError,
 )
-from .helpers import get_local_ip
+from .helpers import get_current_bssid, get_local_ip
 from .models import Device, PairingResult, SpaInfo, SpaStatus
 from .spa import Spa
 from .timers import TimerSlot, build_timer_frame
@@ -33,5 +33,6 @@ __all__ = [
     "async_discover",
     "async_pair",
     "build_timer_frame",
+    "get_current_bssid",
     "get_local_ip",
 ]

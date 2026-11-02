@@ -2,7 +2,7 @@
 
 Put the spa in pairing mode (Wi-Fi icon blinking) and run::
 
-    python example.py --ssid MyWifi
+    python example.py --ssid MyWifi --bssid 00:00:1A:2B:3C:4D
 
 The Wi-Fi password is prompted. A spa already on the network is found by
 discovery when ``--ssid`` is omitted, or reached directly with ``--host``.
@@ -27,8 +27,9 @@ async def find_host(args: argparse.Namespace) -> str | None:
         print(f"Enrolling the spa on {args.ssid}, this can take a minute…")
         # Our local IP is sent to the spa so that it knows where to answer:
         # it is detected automatically (see get_local_ip()) unless given as
-        # third argument. The BSSID (access point MAC) is optional too.
-        result = await async_pair(args.ssid, password)
+        # third argument. The BSSID (MAC address of the 2.4 GHz access point)
+        # is required: the spa joins that access point.
+        result = await async_pair(args.ssid, password, bssid=args.bssid)
         # Once connected, the spa answers with its MAC and its new IP address.
         print(f"Spa module {result.mac} joined with IP {result.ip}")
         return result.ip
@@ -84,5 +85,9 @@ async def main(args: argparse.Namespace) -> None:
 
 parser = argparse.ArgumentParser(description="Enroll a spa, then query it.")
 parser.add_argument("--ssid", help="2.4 GHz Wi-Fi network to enroll the spa on")
+parser.add_argument("--bssid", help="MAC address of the 2.4 GHz access point")
 parser.add_argument("--host", help="IP address of a spa already enrolled")
-asyncio.run(main(parser.parse_args()))
+arguments = parser.parse_args()
+if arguments.ssid and not arguments.bssid:
+    parser.error("--bssid is required with --ssid")
+asyncio.run(main(arguments))
