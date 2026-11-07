@@ -35,12 +35,12 @@ def _in(hours: float) -> datetime:
     Delays are truncated to the minute when encoded: rounding up keeps the
     encoded delay equal to ``hours``.
     """
-    start = datetime.now() + timedelta(hours=hours, seconds=59)
+    start = datetime.now().astimezone() + timedelta(hours=hours, seconds=59)
     return start.replace(second=0, microsecond=0)
 
 
 def _tomorrow_at(hour: int) -> datetime:
-    start = datetime.now() + timedelta(days=1)
+    start = datetime.now().astimezone() + timedelta(days=1)
     return start.replace(hour=hour, minute=0, second=0, microsecond=0)
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -12,7 +12,7 @@ from espspapy.timers import encode_slot
 
 from .conftest import FakeSpa
 
-NOW = datetime(2026, 11, 1, 20, 0)
+NOW = datetime(2026, 11, 1, 20, 0, tzinfo=UTC)
 
 
 def test_short_slot() -> None:
@@ -23,7 +23,7 @@ def test_short_slot() -> None:
 
 def test_short_slot_next_day() -> None:
     """Heater tomorrow 7:00 for 20 hours at 38 °C: day bit 1."""
-    slot = TimerSlot(datetime(2026, 11, 2, 7, 0), 20, 38)
+    slot = TimerSlot(datetime(2026, 11, 2, 7, 0, tzinfo=UTC), 20, 38)
     assert encode_slot(Device.HEATER, slot, NOW).hex() == "0b00140226"
 
 
@@ -76,7 +76,7 @@ def test_invalid_frame() -> None:
 
 async def test_set_timers(fake_spa: FakeSpa) -> None:
     """The frame is sent with its checksum; a status answer is decoded."""
-    slot = TimerSlot(datetime.now() + timedelta(hours=2), 4)
+    slot = TimerSlot(datetime.now(UTC) + timedelta(hours=2), 4)
     async with Spa("127.0.0.1", fake_spa.port, heartbeat_interval=None) as spa:
         status = await spa.async_set_timers(Device.FILTER, [slot])
     assert status is not None
