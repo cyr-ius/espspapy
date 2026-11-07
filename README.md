@@ -71,21 +71,21 @@ before driving the module, and the other way round.
 
 ### API
 
-| Call                                                    | Description                                                               |
-| ------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `async_pair(ssid, password, local_ip=None, *, bssid)`   | Wi-Fi pairing, returns `PairingResult(mac, ip)`                           |
-| `get_local_ip()`                                        | IP address of this host on the LAN                                        |
-| `get_current_bssid(interface=None)`                     | BSSID of the 2.4 GHz access point this host is on (Linux), else `None`    |
-| `async_discover(timeout)`                               | LAN discovery, returns `list[SpaInfo]`                                    |
-| `Spa(host).async_identify()`                            | `SpaInfo(uid, ip, dtype)`                                                 |
-| `Spa(host).async_get_status()`                          | `SpaStatus`                                                               |
-| `Spa(host).async_set_device(device, on)`                | Switch `Device.POWER`, `FILTER`, `HEATER`, `JETS`, `BUBBLES`, `SANITIZER` |
-| `Spa(host).async_toggle(device)`                        | Raw toggle                                                                |
-| `Spa(host).async_set_temperature(value)`                | Target temperature, in the device unit (10-40 °C or 50-104 °F)            |
-| `Spa(host).async_send_frame(frame)`                     | Raw hex frame (checksum added)                                            |
-| `Spa(host).async_heartbeat()`                           | Keep-alive, when `heartbeat_interval=None`                                |
-| `Spa(host).async_set_timers(device, slots)`             | Replace the timers of `FILTER`, `HEATER` or `SANITIZER` (untested)        |
-| `build_timer_frame(device, slots)`                      | Timer frame without checksum, `[]` clears the timers                      |
+| Call                                                  | Description                                                               |
+| ----------------------------------------------------- | ------------------------------------------------------------------------- |
+| `async_pair(ssid, password, local_ip=None, *, bssid)` | Wi-Fi pairing, returns `PairingResult(mac, ip)`                           |
+| `get_local_ip()`                                      | IP address of this host on the LAN                                        |
+| `get_current_bssid(interface=None)`                   | BSSID of the 2.4 GHz access point this host is on (Linux), else `None`    |
+| `async_discover(timeout)`                             | LAN discovery, returns `list[SpaInfo]`                                    |
+| `Spa(host).async_identify()`                          | `SpaInfo(uid, ip, dtype)`                                                 |
+| `Spa(host).async_get_status()`                        | `SpaStatus`                                                               |
+| `Spa(host).async_set_device(device, on)`              | Switch `Device.POWER`, `FILTER`, `HEATER`, `JETS`, `BUBBLES`, `SANITIZER` |
+| `Spa(host).async_toggle(device)`                      | Raw toggle                                                                |
+| `Spa(host).async_set_temperature(value)`              | Target temperature, in the device unit (10-40 °C or 50-104 °F)            |
+| `Spa(host).async_send_frame(frame)`                   | Raw hex frame (checksum added)                                            |
+| `Spa(host).async_heartbeat()`                         | Keep-alive, when `heartbeat_interval=None`                                |
+| `Spa(host).async_set_timers(device, slots)`           | Replace the timers of `FILTER`, `HEATER` or `SANITIZER` (untested)        |
+| `build_timer_frame(device, slots)`                    | Timer frame without checksum, `[]` clears the timers                      |
 
 Exceptions derive from `SpaException`: `SpaConnectionError`,
 `TimeoutExceededError`, `SpaNotRespondingError` (the Wi-Fi module answered but
