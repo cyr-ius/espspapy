@@ -30,10 +30,11 @@ def test_checksum() -> None:
 
 
 @pytest.mark.parametrize(
-    ("value", "expected"), [(0x80, None), (0x00, None), (0x08, None), (0x88, 4.0)]
+    ("value", "expected"),
+    [(0x80, None), (0x00, None), (0x08, None), (0x82, 2), (0x86, 4), (0x8A, 6)],
 )
-def test_work_hours(value: int, expected: float | None) -> None:
-    """Timer byte: active bit and half hours."""
+def test_work_hours(value: int, expected: int | None) -> None:
+    """Timer byte: active bit, durations observed on the control panel."""
     assert work_hours(value) == expected
 
 
@@ -55,9 +56,10 @@ def test_status_off_with_error() -> None:
 
 
 def test_status_heating() -> None:
-    """Spa on, filter and heater on, 39 °C for 38 °C."""
+    """Spa on, filter and heater on, 39 °C for 38 °C: above the target."""
     status = SpaStatus.from_frame(FRAME_HEATING)
-    assert status.power and status.filter and status.heater and status.heating
+    assert status.power and status.filter and status.heater
+    assert not status.heating
     assert not (status.jets or status.bubbles or status.sanitizer)
     assert status.current_temperature == 39
     assert status.target_temperature == 38
@@ -69,15 +71,34 @@ def test_status_heating() -> None:
     assert not status.is_on(Device.JETS)
 
 
-def test_status_fahrenheit_and_standby_heater() -> None:
-    """Target in °F, heater bit 6 (temperature maintained)."""
-    frame = with_checksum("FFFF110F01410062000000008800006400" + "00")
+@pytest.mark.parametrize(
+    ("frame", "heating"),
+    [
+        # Real frames, heater enabled (0x07). 27 °C: the panel LED was green
+        # for a 24 °C target and red for 28 °C.
+        ("FFFF110F0107001B000000008680801800001D", False),
+        ("FFFF110F0107001B000000008680801C000019", True),
+        # 28 °C for 28 °C: red for about an hour, then green, same frame.
+        ("FFFF110F0107001C000000008380801C00001B", None),
+        # Heater off.
+        ("FFFF110F0103001B0000000086808018000021", False),
+    ],
+)
+def test_status_heating_estimated(frame: str, heating: bool | None) -> None:
+    """Heating comes from the heater bit and the temperatures."""
+    status = SpaStatus.from_frame(frame)
+    assert status.heating is heating
+
+
+def test_status_fahrenheit() -> None:
+    """Target in °F, heater enabled below the target."""
+    frame = with_checksum("FFFF110F01070062000000008800006400" + "00")
     status = SpaStatus.from_frame(frame)
     assert status.fahrenheit
     assert status.target_temperature == 100
     assert status.current_temperature == 98
-    assert status.heater and not status.heating
-    assert status.filter_hours == 4.0
+    assert status.heater and status.heating
+    assert status.filter_hours == 5
 
 
 def test_status_end_error() -> None:
@@ -158,3 +179,28 @@ def test_get_current_bssid_no_wifi(monkeypatch: pytest.MonkeyPatch) -> None:
     assert get_current_bssid("eth0") is None
     monkeypatch.setattr("espspapy.helpers._wireless_interfaces", list)
     assert get_current_bssid() is None
+
+
+@pytest.mark.parametrize(
+    ("frame", "delay", "duration"),
+    [
+        # Real frames: 2-hour delayed start, then durations set on the panel.
+        ("FFFF110F0101001C008002008080801C0000A1", 2, None),
+        ("FFFF110F0101001C008002818080811C00001F", 2, 1),
+        ("FFFF110F0101001C008002858080851C000017", 2, 3),
+        ("FFFF110F0101001C008002878080871C000013", 2, 4),
+        ("FFFF110F0101001C008002DF8080DF1C000062", 2, 48),
+        # 3-hour delay; a 1-hour delay reads 00 00, like no delay.
+        ("FFFF110F0101001B008004008080801C0000A0", 3, None),
+        ("FFFF110F0101001B000000008080801C000025", None, None),
+        # No heater timer.
+        ("FFFF110F0107001C000000008380801C00001B", None, None),
+    ],
+)
+def test_status_heater_timer(
+    frame: str, delay: float | None, duration: float | None
+) -> None:
+    """Heater delayed start (bytes 9-10) and duration (bytes 11 and 14)."""
+    status = SpaStatus.from_frame(frame)
+    assert status.heater_delay_hours == delay
+    assert status.heater_hours == duration

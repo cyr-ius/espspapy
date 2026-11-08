@@ -71,37 +71,72 @@ before driving the module, and the other way round.
 
 ### API
 
-| Call                                                  | Description                                                               |
-| ----------------------------------------------------- | ------------------------------------------------------------------------- |
-| `async_pair(ssid, password, local_ip=None, *, bssid)` | Wi-Fi pairing, returns `PairingResult(mac, ip)`                           |
-| `get_local_ip()`                                      | IP address of this host on the LAN                                        |
-| `get_current_bssid(interface=None)`                   | BSSID of the 2.4 GHz access point this host is on (Linux), else `None`    |
-| `async_discover(timeout)`                             | LAN discovery, returns `list[SpaInfo]`                                    |
-| `Spa(host).async_identify()`                          | `SpaInfo(uid, ip, dtype)`                                                 |
-| `Spa(host).async_get_status()`                        | `SpaStatus`                                                               |
-| `Spa(host).async_set_device(device, on)`              | Switch `Device.POWER`, `FILTER`, `HEATER`, `JETS`, `BUBBLES`, `SANITIZER` |
-| `Spa(host).async_toggle(device)`                      | Raw toggle                                                                |
-| `Spa(host).async_set_temperature(value)`              | Target temperature, in the device unit (10-40 °C or 50-104 °F)            |
-| `Spa(host).async_send_frame(frame)`                   | Raw hex frame (checksum added)                                            |
-| `Spa(host).async_heartbeat()`                         | Keep-alive, when `heartbeat_interval=None`                                |
-| `Spa(host).async_set_timers(device, slots)`           | Replace the timers of `FILTER`, `HEATER` or `SANITIZER` (untested)        |
-| `build_timer_frame(device, slots)`                    | Timer frame without checksum, `[]` clears the timers                      |
+| Call                                                   | Description                                                                  |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `async_pair(ssid, password, local_ip=None, *, bssid)`  | Wi-Fi pairing, returns `PairingResult(mac, ip)`                              |
+| `get_local_ip()`                                       | IP address of this host on the LAN                                           |
+| `get_current_bssid(interface=None)`                    | BSSID of the 2.4 GHz access point this host is on (Linux), else `None`       |
+| `async_discover(timeout)`                              | LAN discovery, returns `list[SpaInfo]`                                       |
+| `Spa(host).async_identify()`                           | `SpaInfo(uid, ip, dtype)`                                                    |
+| `Spa(host).async_get_status()`                         | `SpaStatus`                                                                  |
+| `Spa(host).async_set_device(device, on)`               | Switch `Device.POWER`, `FILTER`, `HEATER`, `JETS`, `BUBBLES`, `SANITIZER`    |
+| `Spa(host).async_toggle(device)`                       | Raw toggle                                                                   |
+| `Spa(host).async_set_temperature(value)`               | Target temperature, in the device unit (10-40 °C or 50-104 °F)               |
+| `Spa(host).async_send_frame(frame)`                    | Raw hex frame (checksum added)                                               |
+| `Spa(host).async_heartbeat()`                          | Keep-alive, when `heartbeat_interval=None`                                   |
+| `Spa(host).async_set_filter_timer(hours, delay)`       | Run the filter for `hours`, after `delay` (`timedelta`, default now)         |
+| `Spa(host).async_set_heater_timer(hours, delay, temp)` | Heat for `hours` after `delay`, at `temp` (default: current target)          |
+| `Spa(host).async_set_sanitizer_timer(hours, delay)`    | Run the sanitizer for `hours` after `delay` (untested on a device)           |
+| `Spa(host).async_clear_timer(device)`                  | Clear the timers of `FILTER`, `HEATER` or `SANITIZER`                        |
+| `Spa(host).scheduled_timers`                           | Slots sent by this client that have not ended (the spa does not report them) |
+| `Spa(host).async_set_timers(device, slots)`            | Replace the timers of a device with a list of `TimerSlot`                    |
+| `build_timer_frame(device, slots)`                     | Timer frame without checksum, `[]` clears the timers                         |
 
 Exceptions derive from `SpaException`: `SpaConnectionError`,
 `TimeoutExceededError`, `SpaNotRespondingError` (the Wi-Fi module answered but
 not the controller board), `InvalidFrameError`, `CommandError`, `PairingError`.
 
-Timer slots are one-shot, relative to the time of sending:
+Timers are one-shot, relative to the time of sending, like the control panel
+(delayed start and duration). A new timer replaces the previous one of the same
+device. The spa does not report a timer before it starts, so the client keeps
+what it sent in `scheduled_timers`:
 
 ```python
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-from espspapy import Device, TimerSlot
+from espspapy import Device
 
-start = datetime.now() + timedelta(hours=2)
-await spa.async_set_timers(Device.HEATER, [TimerSlot(start, 3, temperature=38)])
-await spa.async_set_timers(Device.HEATER, [])  # clear
+await spa.async_set_filter_timer(4)  # filter now, for 4 hours
+await spa.async_set_heater_timer(3, delay=timedelta(hours=2))  # current target
+await spa.async_set_heater_timer(1, timedelta(minutes=15), temperature=38)
+print(spa.scheduled_timers)  # {Device.HEATER: (TimerSlot(start=…, duration=1, …),)}
+await spa.async_clear_timer(Device.HEATER)
 ```
+
+Several slots per device (up to 7) go through `async_set_timers()` with a list
+of `TimerSlot(start, duration, temperature)`.
+
+#### Control panel and library compared
+
+The control panel only offers the values of the user manual. The library sends
+the timer frames of the mobile app, which accept more: those extra values are
+allowed by the frame format, but most were not tried on a device.
+
+| Setting              | Control panel (user manual)                | Library (frame format)                            | Checked on a device                           |
+| -------------------- | ------------------------------------------ | ------------------------------------------------- | --------------------------------------------- |
+| Filter duration      | 2, 4 or 6 hours                            | 1 to 48 hours                                     | 2 hours                                       |
+| Filter start         | now, then again every day at the same time | now or after a delay, once (no daily repeat)      | now                                           |
+| Sanitizer duration   | 3, 5 or 8 hours                            | 1 to 48 hours                                     | 3 hours (status byte 13: `84`)                |
+| Sanitizer start      | now                                        | now or after a delay                              | now                                           |
+| Heater delayed start | 0 to 120 hours, in hours, heater off only  | to the minute, the slot ending within 7 days      | now and 15 minutes                            |
+| Heater duration      | 0 to 48 hours, 0 = no end                  | 1 to 48 hours (no "no end")                       | 1 hour                                        |
+| Heater temperature   | current target                             | any target in range, per slot                     | current target (28 °C)                        |
+| Timers per device    | 1                                          | up to 7 slots                                     | 1                                             |
+| Read back            | shown on the panel                         | not reported before the start: `scheduled_timers` | timers set on the panel: status bytes 9-14    |
+| Clear                | panel buttons                              | `async_clear_timer()`                             | running: stops at once; pending: never starts |
+
+Values outside the panel choices (a 3-hour filter, a 90-minute delay) are
+therefore untested: check the result with `espspapy monitor` the first time.
 
 ### Command line
 
@@ -110,9 +145,13 @@ espspapy discover
 espspapy pair --ssid MyWifi  # BSSID detected if this host is on 2.4 GHz Wi-Fi
 espspapy pair --ssid MyWifi --bssid 00:00:1A:2B:3C:4D
 espspapy status 192.168.1.10
-espspapy monitor 192.168.1.10 --interval 10
+espspapy monitor 192.168.1.10 --interval 10  # --changes: print only changes
 espspapy bubbles 192.168.1.10 on
 espspapy temp 192.168.1.10 38
+espspapy timer 192.168.1.10 filter --hours 4
+espspapy timer 192.168.1.10 heater --hours 3 --in 120 --temp 38  # in 2 hours
+espspapy timer 192.168.1.10 heater --clear
+espspapy shell 192.168.1.10  # debug shell of the Wi-Fi module
 espspapy --json status 192.168.1.10
 ```
 
@@ -131,13 +170,25 @@ Message types: `0` heartbeat, `1` command, `2` status report, `3` identification
 Frames are hex strings followed by the checksum `255 - sum(bytes) % 255`.
 The status request is `8888060FEE0F01DA`; the answer is `FFFF110F01…`:
 
-| Byte  | Content                                                                                                  |
-| ----- | -------------------------------------------------------------------------------------------------------- |
-| 5     | Devices: bit 0 power, 1 filter, 2 heater, 3 jets, 4 bubbles, 5 sanitizer, 6 heater (temperature reached) |
-| 6     | Flashing: bit 0 error code                                                                               |
-| 7     | Water temperature, or error code + 100 (E81…E99, 200 = END)                                              |
-| 12-14 | Filter, sanitizer, heater timers (bit 7 active, half hours)                                              |
-| 15    | Target temperature (10-40 °C or 50-104 °F)                                                               |
+| Byte  | Content                                                                            |
+| ----- | ---------------------------------------------------------------------------------- |
+| 5     | Devices: bit 0 power, 1 filter, 2 heater (enabled), 3 jets, 4 bubbles, 5 sanitizer |
+| 6     | Flashing: bit 0 error code                                                         |
+| 7     | Water temperature, or error code + 100 (E81…E99, 200 = END)                        |
+| 9-10  | Heater delayed start: `80` when set, then coded like the filter timer (see below)  |
+| 11    | Heater duration set (`00`: none, the heater then stays on), coded like byte 14     |
+| 12-14 | Filter, sanitizer, heater timers (bit 7 active, see below)                         |
+| 15    | Target temperature (10-40 °C or 50-104 °F)                                         |
+
+Bit 2 means the heater function is enabled, not that the water is being
+heated, and no byte says whether the heater element runs. With the heater
+enabled, the frame reads `07` at 27 °C both for a 24 °C target (panel LED
+green, idle) and for a 28 °C target (LED red, heating). The board measures
+decimals: at 28 °C displayed for a 28 °C target, it kept heating for about an
+hour, then the LED turned green, with the same frame. So `SpaStatus.heating` is
+`True` below the target, `False` above it or with the heater off, and `None`
+(unknown) when the water is displayed at the target. Bit 6, once assumed to
+mean "temperature reached", was never seen set.
 
 The toggle and temperature frames belong to command set 1/3; other models may
 use other frames. Switching the heater on also starts the filter (bits 1 and 2
@@ -165,6 +216,39 @@ are expected to behave the same way, which is not confirmed.
   every day at the same time), sanitizer 3, 5 or 8 hours, heater start delay 0
   to 120 hours and heater duration 0 to 48 hours. The controller only counts
   down: it has no clock.
+- Timer bytes 12-14 of the status: the filter set to 2, 4 and 6 hours from the
+  control panel reads `82`, `86` and `8A`, as does a 2-hour filter frame sent by
+  this library (`82`). The value drops by one every 30 minutes (4 hours set at
+  15:40: `86`, then `85` at 16:10), so the library decodes the low 7 bits as
+  `bits / 2 + 1` remaining hours. Whether the last hour runs after the byte is
+  back to `80`, and the sanitizer byte, are not checked yet.
+- Heater timer from the control panel: one button sets the delayed start, read
+  in bytes 9-10 (2 and 3 hours read `80 02` and `80 04`, decoded as
+  `value / 2 + 1` hours like the filter; 1 hour reads `00 00`, like no delay, so
+  the last hour of a delay is not visible), another the duration, read in bytes 11
+  and 14 before the start: 1, 3, 4 and 48 hours read `81`, `85`, `87` and `DF`,
+  decoded as `(bits + 1) / 2` hours. A duration of 0 (`00`, `80`) keeps the
+  heater on once started. The delayed start can only be set while the heater is
+  off (LED green or red: the button does nothing). A 1-hour delay, invisible in
+  the frame, still started the heater and the filter one hour later (byte 5
+  `01` → `07`, bytes 9-14 unchanged): the board counts the delay itself. The
+  countdown of a longer delay is not checked yet.
+- Heater timer frame sent by this library (`8888280F0A`, built like the
+  decompiled app): a slot starting now for 1 hour started the heater at once
+  (the board answered with a status) and stopped it one hour later, while bytes
+  11 and 14 read `00` and `80` all along. The control panel showed the
+  remaining hour. A running timer reads one unit less than a pending one, so
+  its last hour is not visible, like the last hour of a delay. A slot starting
+  in 15 minutes started the heater 15 minutes later, with nothing visible
+  before (status frame and control panel): slots sent this way are stored on
+  the board and cannot be read back.
+- Sanitizer timer frame (`8888280F0B`) for 3 hours, starting now: byte 5 went
+  `01` → `23` (filter and sanitizer), byte 13 to `84` (coded like the filter),
+  and the control panel showed 3 hours. Clearing it a few seconds later
+  (`async_clear_timer`) stopped the sanitizer and the filter at once (byte 5
+  `01`, byte 13 `80`); the board answered both frames with a status.
+- A filter slot starting in 15 minutes, cleared 5 seconds after it was sent,
+  never started (status read every minute for 24 minutes).
 - Because of the power limit, only these combinations can run together: filter,
   heater and bubbles; filter, heater and jets; filter, bubbles, sanitizer and
   jets (without the heater).
@@ -178,9 +262,12 @@ are expected to behave the same way, which is not confirmed.
 The module has no clock: the decompiled mobile client sends each timer list as
 delays from the time of sending, and resends it after every change.
 `Spa.async_set_timers()` sends one-shot slots of the filter, heater or
-sanitizer; the layout below comes from the decompiled code, only the combined
-frame was seen in a capture, and **these frames were not tested on a device
-yet** (see `debug.py`).
+sanitizer; the layout below comes from the decompiled code, and only the
+combined frame was seen in a capture. A one-slot filter frame (start now, 2
+hours) was tested on a device: the control board applies it but does not
+answer, so the module reports `timeout`. The frame is therefore sent once,
+without retry, and the status is read afterwards. The other slots (delayed
+start, several slots, heater, sanitizer) are still untested (see `debug.py`).
 
 | Frame        | Content                                                                  |
 | ------------ | ------------------------------------------------------------------------ |
@@ -208,8 +295,15 @@ not sent either.
 
 ### Network and security
 
+- The module forwards every command to the control board over a single serial
+  link: with another client connected (Home Assistant, the mobile app), answers
+  often come back as `timeout` or `mcu_busy`.
 - The debug shell on TCP port 23 is open without authentication: keep the
-  module on a trusted network.
+  module on a trusted network. `espspapy shell <host>` opens it. It runs on the
+  module, not on the spa control board: `help`, `task-stats`,
+  `run-time-stats`, `heap-trace`, `echo-parameters`, `echo-3-parameters`,
+  `reboot` and `smartconfig` (reboots in pairing mode, the module leaves the
+  Wi-Fi network). The CLI asks for confirmation before the last two.
 - The module also connects to a cloud service
   (`intexapphub.azure-devices.net`, Azure IoT Hub). Local control does not need
   it, so it can be blocked with a DNS rewrite.

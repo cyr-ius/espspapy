@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 SPA_TCP_PORT = 8990
+DEBUG_SHELL_PORT = 23
 
 MSG_TYPE_HEARTBEAT = 0
 MSG_TYPE_COMMAND = 1
@@ -33,8 +34,6 @@ TEMP_RANGE_CELSIUS = (10, 40)
 TEMP_RANGE_FAHRENHEIT = (50, 104)
 ERROR_CODE_MIN = 180
 ERROR_CODE_END = 200
-# Heater on, target temperature maintained.
-HEATER_STANDBY_BIT = 6
 
 BROADCAST_ADDR = "255.255.255.255"
 

@@ -10,7 +10,7 @@ read before and after each frame (timer bytes 12-14)::
     python debug.py --host 192.168.1.10 --send -v filter-now clear-filter
 
 Start with ``filter-now``: like the control panel, the filter should start at
-once and the status should count down 2 hours in byte 12.
+once and the status should read 2 hours in byte 12 (0x82).
 
 The timer frames come from the decompiled mobile client and were never tested
 on a real device: watch the device, and clear the timers when done
@@ -45,17 +45,42 @@ def _tomorrow_at(hour: int) -> datetime:
 
 
 EXAMPLES: dict[str, Callable[[], Example]] = {
-    # Immediate start, like the control panel: byte 12 should become 0x84.
+    # Immediate start, like the control panel: byte 12 should become 0x82.
     "filter-now": lambda: (
         Device.FILTER,
         [TimerSlot(_in(0), 2)],
-        "filter now for 2 hours (expected byte 12: 84)",
+        "filter now for 2 hours (expected byte 12: 82)",
     ),
-    # Byte 13 should become 0x86.
+    # Byte 13 should become 0x84 if it is encoded like the filter (unchecked).
     "sanitizer-now": lambda: (
         Device.SANITIZER,
         [TimerSlot(_in(0), 3)],
-        "sanitizer now for 3 hours (expected byte 13: 86)",
+        "sanitizer now for 3 hours (expected byte 13: 84?)",
+    ),
+    # Like the control panel set to 4 hours: byte 12 should become 0x86.
+    "filter-4h": lambda: (
+        Device.FILTER,
+        [TimerSlot(_in(0), 4)],
+        "filter now for 4 hours (expected byte 12: 86)",
+    ),
+    # Like the control panel (heater off): delayed start in bytes 9-10,
+    # duration in bytes 11 and 14.
+    "heater-delay": lambda: (
+        Device.HEATER,
+        [TimerSlot(_in(2), 1, 28)],
+        "heater in 2 hours for 1 hour at 28 °C (expected bytes 9-11: 80 02 81, 14: 81)",
+    ),
+    # Immediate start, like filter-now: byte 5 should become 0x07.
+    "heater-now": lambda: (
+        Device.HEATER,
+        [TimerSlot(_in(0), 1, 28)],
+        "heater now for 1 hour at 28 °C (expected byte 5: 07, byte 14: 81)",
+    ),
+    # Short delay to check that a delayed slot starts (heater off first).
+    "heater-15min": lambda: (
+        Device.HEATER,
+        [TimerSlot(_in(0.25), 1, 28)],
+        "heater in 15 minutes for 1 hour at 28 °C (byte 5 should become 07 then)",
     ),
     "filter": lambda: (
         Device.FILTER,
@@ -90,10 +115,12 @@ EXAMPLES: dict[str, Callable[[], Example]] = {
 
 def timers(status: SpaStatus) -> str:
     """Return the timer bytes of a status, decoded and raw."""
-    raw = status.raw[24:30]
+    raw = status.raw
     return (
         f"filter={status.filter_hours} h sanitizer={status.sanitizer_hours} h "
-        f"heater={status.heater_hours} h (bytes 12-14: {raw})"
+        f"heater={status.heater_hours} h delay={status.heater_delay_hours} h "
+        f"(byte 5: {raw[10:12]}, bytes 9-11: {raw[18:20]} {raw[20:22]} {raw[22:24]}, "
+        f"12-14: {raw[24:26]} {raw[26:28]} {raw[28:30]})"
     )
 
 
@@ -105,7 +132,7 @@ async def send(host: str, names: list[str]) -> None:
             device, slots, label = EXAMPLES[name]()
             print(f"\n{name}: {label}")
             status = await spa.async_set_timers(device, slots)
-            print(f"Answer        : {timers(status) if status else 'not a status'}")
+            print(f"Answer        : {timers(status)}")
             await asyncio.sleep(2)
             print(f"Status        : {timers(await spa.async_get_status())}")
 

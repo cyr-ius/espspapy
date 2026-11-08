@@ -25,11 +25,36 @@ def with_checksum(frame: str) -> str:
 def work_hours(value: int) -> float | None:
     """Decode a timer byte.
 
-    Bit 7 means active, bits 0-6 count half hours. The spa sends ``0x80``
-    when no timer is programmed.
+    Bit 7 means active. Bits 0-6 drop by one every 30 minutes; the filter set
+    from the control panel reads ``0x82`` (2 hours), ``0x86`` (4 hours) and
+    ``0x8A`` (6 hours), so they are decoded as ``bits / 2 + 1`` remaining
+    hours. The spa sends ``0x80`` when no timer is programmed.
     """
-    half_hours = value & 0x7F
-    return half_hours / 2 if value & 0x80 and half_hours else None
+    bits = value & 0x7F
+    return bits / 2 + 1 if value & 0x80 and bits else None
+
+
+def heater_hours(value: int) -> float | None:
+    """Decode the heater duration byte (11, and 14 before the start).
+
+    Bit 7 means set. Durations set from the control panel read ``0x81``
+    (1 hour), ``0x85`` (3 hours), ``0x87`` (4 hours) and ``0xDF`` (48 hours):
+    decoded as ``(bits + 1) / 2`` hours. ``0x80`` or ``0x00``: no duration, the
+    heater then stays on once started.
+    """
+    bits = value & 0x7F
+    return (bits + 1) / 2 if value & 0x80 and bits else None
+
+
+def delay_hours(flag: int, value: int) -> float | None:
+    """Decode the heater delayed start (bytes 9 and 10).
+
+    Bit 7 of the first byte means set. Coded like the filter timer: delays of
+    2 and 3 hours set from the control panel read ``80 02`` and ``80 04``, so
+    the second byte is decoded as ``value / 2 + 1`` hours. A 1-hour delay
+    reads ``00 00``, like no delay: the last hour of a delay is not visible.
+    """
+    return value / 2 + 1 if flag & 0x80 else None
 
 
 def parse_bssid(value: str) -> bytes:
