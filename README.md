@@ -263,11 +263,12 @@ The module has no clock: the decompiled mobile client sends each timer list as
 delays from the time of sending, and resends it after every change.
 `Spa.async_set_timers()` sends one-shot slots of the filter, heater or
 sanitizer; the layout below comes from the decompiled code, and only the
-combined frame was seen in a capture. A one-slot filter frame (start now, 2
-hours) was tested on a device: the control board applies it but does not
-answer, so the module reports `timeout`. The frame is therefore sent once,
-without retry, and the status is read afterwards. The other slots (delayed
-start, several slots, heater, sanitizer) are still untested (see `debug.py`).
+combined frame was seen in a capture. The board may apply a timer frame
+without answering (the module then reports `timeout`), so the frame is sent
+once, without retry, and the status is read afterwards. One-slot frames of the
+filter, heater and sanitizer, starting now or after a delay, and clearing,
+were tested on a device (see "Device behaviour" above); several slots per
+device and the combined frame are still untested.
 
 | Frame        | Content                                                                  |
 | ------------ | ------------------------------------------------------------------------ |
@@ -350,10 +351,11 @@ uv run mypy espspapy tests
 uv run pytest
 ```
 
-`debug.py` prints the timer frames of a few examples; with `--host` and
-`--send`, it sends them and reads the status before and after each one:
+To try timers on a device, set one with `espspapy timer` and follow the status
+with `espspapy -v monitor`, which shows the raw timer bytes:
 
 ```bash
-uv run python debug.py
-uv run python debug.py --host 192.168.1.10 --send filter clear-filter
+uv run espspapy timer 192.168.1.10 filter --hours 2
+uv run espspapy -v monitor 192.168.1.10 --interval 60
+uv run espspapy timer 192.168.1.10 filter --clear
 ```
