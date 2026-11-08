@@ -116,6 +116,28 @@ await spa.async_clear_timer(Device.HEATER)
 Several slots per device (up to 7) go through `async_set_timers()` with a list
 of `TimerSlot(start, duration, temperature)`.
 
+#### Control panel and library compared
+
+The control panel only offers the values of the user manual. The library sends
+the timer frames of the mobile app, which accept more: those extra values are
+allowed by the frame format, but most were not tried on a device.
+
+| Setting              | Control panel (user manual)                | Library (frame format)                            | Checked on a device                        |
+| -------------------- | ------------------------------------------ | ------------------------------------------------- | ------------------------------------------ |
+| Filter duration      | 2, 4 or 6 hours                            | 1 to 48 hours                                     | 2 hours                                    |
+| Filter start         | now, then again every day at the same time | now or after a delay, once (no daily repeat)      | now                                        |
+| Sanitizer duration   | 3, 5 or 8 hours                            | 1 to 48 hours                                     | no                                         |
+| Sanitizer start      | now                                        | now or after a delay                              | no                                         |
+| Heater delayed start | 0 to 120 hours, in hours, heater off only  | to the minute, the slot ending within 7 days      | now and 15 minutes                         |
+| Heater duration      | 0 to 48 hours, 0 = no end                  | 1 to 48 hours (no "no end")                       | 1 hour                                     |
+| Heater temperature   | current target                             | any target in range, per slot                     | current target (28 °C)                     |
+| Timers per device    | 1                                          | up to 7 slots                                     | 1                                          |
+| Read back            | shown on the panel                         | not reported before the start: `scheduled_timers` | timers set on the panel: status bytes 9-14 |
+| Clear                | panel buttons                              | `async_clear_timer()`                             | no                                         |
+
+Values outside the panel choices (a 3-hour filter, a 90-minute delay) are
+therefore untested: check the result with `espspapy monitor` the first time.
+
 ### Command line
 
 ```bash
