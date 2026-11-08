@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 SPA_TCP_PORT = 8990
+DEBUG_SHELL_PORT = 23
 
 MSG_TYPE_HEARTBEAT = 0
 MSG_TYPE_COMMAND = 1

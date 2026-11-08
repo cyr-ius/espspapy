@@ -57,6 +57,31 @@ EXAMPLES: dict[str, Callable[[], Example]] = {
         [TimerSlot(_in(0), 3)],
         "sanitizer now for 3 hours (expected byte 13: 84?)",
     ),
+    # Like the control panel set to 4 hours: byte 12 should become 0x86.
+    "filter-4h": lambda: (
+        Device.FILTER,
+        [TimerSlot(_in(0), 4)],
+        "filter now for 4 hours (expected byte 12: 86)",
+    ),
+    # Like the control panel (heater off): delayed start in bytes 9-10,
+    # duration in bytes 11 and 14.
+    "heater-delay": lambda: (
+        Device.HEATER,
+        [TimerSlot(_in(2), 1, 28)],
+        "heater in 2 hours for 1 hour at 28 °C (expected bytes 9-11: 80 02 81, 14: 81)",
+    ),
+    # Immediate start, like filter-now: byte 5 should become 0x07.
+    "heater-now": lambda: (
+        Device.HEATER,
+        [TimerSlot(_in(0), 1, 28)],
+        "heater now for 1 hour at 28 °C (expected byte 5: 07, byte 14: 81)",
+    ),
+    # Short delay to check that a delayed slot starts (heater off first).
+    "heater-15min": lambda: (
+        Device.HEATER,
+        [TimerSlot(_in(0.25), 1, 28)],
+        "heater in 15 minutes for 1 hour at 28 °C (byte 5 should become 07 then)",
+    ),
     "filter": lambda: (
         Device.FILTER,
         [TimerSlot(_in(0.25), 2)],
@@ -90,10 +115,12 @@ EXAMPLES: dict[str, Callable[[], Example]] = {
 
 def timers(status: SpaStatus) -> str:
     """Return the timer bytes of a status, decoded and raw."""
-    raw = status.raw[24:30]
+    raw = status.raw
     return (
         f"filter={status.filter_hours} h sanitizer={status.sanitizer_hours} h "
-        f"heater={status.heater_hours} h (bytes 12-14: {raw})"
+        f"heater={status.heater_hours} h delay={status.heater_delay_hours} h "
+        f"(byte 5: {raw[10:12]}, bytes 9-11: {raw[18:20]} {raw[20:22]} {raw[22:24]}, "
+        f"12-14: {raw[24:26]} {raw[26:28]} {raw[28:30]})"
     )
 
 

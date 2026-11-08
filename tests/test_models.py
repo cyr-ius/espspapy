@@ -179,3 +179,28 @@ def test_get_current_bssid_no_wifi(monkeypatch: pytest.MonkeyPatch) -> None:
     assert get_current_bssid("eth0") is None
     monkeypatch.setattr("espspapy.helpers._wireless_interfaces", list)
     assert get_current_bssid() is None
+
+
+@pytest.mark.parametrize(
+    ("frame", "delay", "duration"),
+    [
+        # Real frames: 2-hour delayed start, then durations set on the panel.
+        ("FFFF110F0101001C008002008080801C0000A1", 2, None),
+        ("FFFF110F0101001C008002818080811C00001F", 2, 1),
+        ("FFFF110F0101001C008002858080851C000017", 2, 3),
+        ("FFFF110F0101001C008002878080871C000013", 2, 4),
+        ("FFFF110F0101001C008002DF8080DF1C000062", 2, 48),
+        # 3-hour delay; a 1-hour delay reads 00 00, like no delay.
+        ("FFFF110F0101001B008004008080801C0000A0", 3, None),
+        ("FFFF110F0101001B000000008080801C000025", None, None),
+        # No heater timer.
+        ("FFFF110F0107001C000000008380801C00001B", None, None),
+    ],
+)
+def test_status_heater_timer(
+    frame: str, delay: float | None, duration: float | None
+) -> None:
+    """Heater delayed start (bytes 9-10) and duration (bytes 11 and 14)."""
+    status = SpaStatus.from_frame(frame)
+    assert status.heater_delay_hours == delay
+    assert status.heater_hours == duration

@@ -14,7 +14,7 @@ from .const import (
     TEMP_RANGE_FAHRENHEIT,
 )
 from .exceptions import InvalidFrameError
-from .helpers import checksum, work_hours
+from .helpers import checksum, delay_hours, heater_hours, work_hours
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -103,6 +103,7 @@ class SpaStatus:
     filter_hours: float | None
     sanitizer_hours: float | None
     heater_hours: float | None
+    heater_delay_hours: float | None
     raw: str
 
     @classmethod
@@ -152,7 +153,8 @@ class SpaStatus:
             error_code=error_code,
             filter_hours=work_hours(data[12]),
             sanitizer_hours=work_hours(data[13]),
-            heater_hours=work_hours(data[14]),
+            heater_hours=heater_hours(data[14]),
+            heater_delay_hours=delay_hours(data[9], data[10]),
             raw=frame,
         )
 

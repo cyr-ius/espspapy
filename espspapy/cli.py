@@ -16,6 +16,7 @@ from .esptouch import async_pair
 from .exceptions import SpaException
 from .helpers import get_current_bssid, get_local_ip
 from .models import Device, SpaInfo, SpaStatus
+from .shell import async_shell
 from .spa import Spa
 
 STATES = {"on": True, "off": False}
@@ -29,12 +30,29 @@ def _format_status(status: SpaStatus) -> str:
         return ("on" if value else "off") + timer
 
     def heater_state() -> str:
-        text = state(status.heater, status.heater_hours)
+        text = state(status.heater)
         if status.heater:
             text += {True: " (heating)", False: " (idle)", None: " (heating?)"}[
                 status.heating
             ]
         return text
+
+    raw = [status.raw[i : i + 2] for i in range(0, len(status.raw), 2)]
+
+    def delay() -> str:
+        hours = status.heater_delay_hours
+        if hours is not None:
+            return f"in {hours:g} h"
+        # The last hour of a delay reads like no delay, unless already started.
+        return "none" if status.heater else "none (or 1 h left)"
+
+    def duration() -> str:
+        hours = status.heater_hours
+        if hours is not None:
+            return f"{hours:g} h"
+        started = status.heater or status.heater_delay_hours is not None
+        # The last hour of a running duration reads like no duration.
+        return "none (no end, or 1 h left)" if started else "none"
 
     def temperature(value: int | None) -> str:
         return f"{value} {unit}" if value is not None else "?"
@@ -43,6 +61,8 @@ def _format_status(status: SpaStatus) -> str:
         f"Power        : {state(status.power)}",
         f"Filter       : {state(status.filter, status.filter_hours)}",
         f"Heater       : {heater_state()}",
+        f"Heater start : {delay()}  [bytes 9-10: {raw[9]} {raw[10]}]",
+        f"Heater time  : {duration()}  [bytes 11, 14: {raw[11]} {raw[14]}]",
         f"Jets         : {state(status.jets)}",
         f"Bubbles      : {state(status.bubbles)}",
         f"Sanitizer    : {state(status.sanitizer, status.sanitizer_hours)}",
@@ -83,6 +103,28 @@ async def _run(args: argparse.Namespace) -> int:
         result = await async_pair(args.ssid, password, local_ip, bssid=bssid)
         print(f"Spa module {result.mac} joined with IP {result.ip}", file=sys.stderr)
         args.host = result.ip
+
+    if args.command == "shell":
+        loop = asyncio.get_running_loop()
+
+        async def read_line(prompt: str) -> str | None:
+            if prompt:
+                print(prompt, end="", flush=True)
+            line = await loop.run_in_executor(None, sys.stdin.readline)
+            return line or None
+
+        def write(text: str) -> None:
+            sys.stdout.write(text)
+            sys.stdout.flush()
+
+        print("Debug shell of the Wi-Fi module ('exit' or Ctrl+D to quit)")
+        try:
+            await async_shell(args.host, read_line, write)
+        except OSError as err:
+            print(f"Error: cannot connect to {args.host}: {err}", file=sys.stderr)
+            return 1
+        print()
+        return 0
 
     async with Spa(args.host) as spa:
         if args.command in ("pair", "identify"):
@@ -155,6 +197,11 @@ def build_parser() -> argparse.ArgumentParser:
     temp.add_argument("host")
     temp.add_argument("value", type=int)
 
+    shell = sub.add_parser(
+        "shell", help="interactive debug shell of the Wi-Fi module (port 23)"
+    )
+    shell.add_argument("host")
+
     raw = sub.add_parser("raw", help="send a hex frame (checksum added)")
     raw.add_argument("host")
     raw.add_argument("frame")
@@ -174,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: {err}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
-        return 0 if args.command == "monitor" else 130
+        return 0 if args.command in ("monitor", "shell") else 130
 
 
 if __name__ == "__main__":
