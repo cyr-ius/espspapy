@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from dataclasses import asdict
+from datetime import timedelta
 import getpass
 import json
 import logging
@@ -83,6 +84,22 @@ def _print(value: SpaStatus | SpaInfo, as_json: bool) -> None:
         print(f"uid={value.uid} ip={value.ip} dtype={value.dtype}")
 
 
+async def _set_timer(spa: Spa, args: argparse.Namespace) -> SpaStatus:
+    device = Device[args.device.upper()]
+    if args.clear:
+        return await spa.async_clear_timer(device)
+    if args.hours is None:
+        raise ValueError("--hours or --clear is needed")
+    delay = timedelta(minutes=args.delay)
+    if device is Device.HEATER:
+        return await spa.async_set_heater_timer(args.hours, delay, args.temp)
+    if args.temp is not None:
+        raise ValueError("--temp is only for the heater")
+    if device is Device.FILTER:
+        return await spa.async_set_filter_timer(args.hours, delay)
+    return await spa.async_set_sanitizer_timer(args.hours, delay)
+
+
 async def _run(args: argparse.Namespace) -> int:
     if args.command == "discover":
         spas = await async_discover(args.timeout)
@@ -144,6 +161,8 @@ async def _run(args: argparse.Namespace) -> int:
                 await asyncio.sleep(args.interval)
         elif args.command == "temp":
             _print(await spa.async_set_temperature(args.value), args.json)
+        elif args.command == "timer":
+            _print(await _set_timer(spa, args), args.json)
         elif args.command == "raw":
             _print(await spa.async_send_frame(args.frame), args.json)
         else:
@@ -201,6 +220,24 @@ def build_parser() -> argparse.ArgumentParser:
         "shell", help="interactive debug shell of the Wi-Fi module (port 23)"
     )
     shell.add_argument("host")
+
+    timer = sub.add_parser(
+        "timer",
+        help="run the filter, heater or sanitizer for some hours, now or later",
+    )
+    timer.add_argument("host")
+    timer.add_argument("device", choices=("filter", "heater", "sanitizer"))
+    timer.add_argument("--hours", type=int, help="duration, 1-48 hours")
+    timer.add_argument(
+        "--in",
+        dest="delay",
+        type=int,
+        default=0,
+        metavar="MINUTES",
+        help="start after this delay (default: now)",
+    )
+    timer.add_argument("--temp", type=int, help="heater target (default: current)")
+    timer.add_argument("--clear", action="store_true", help="clear the timers")
 
     raw = sub.add_parser("raw", help="send a hex frame (checksum added)")
     raw.add_argument("host")

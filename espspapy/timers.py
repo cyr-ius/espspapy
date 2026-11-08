@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .const import (
     TEMP_RANGE_CELSIUS,
@@ -33,6 +33,11 @@ class TimerSlot:
     start: datetime
     duration: int
     temperature: int | None = None
+
+    @property
+    def end(self) -> datetime:
+        """Return the end time of the slot."""
+        return self.start + timedelta(hours=self.duration)
 
 
 def encode_slot(device: Device, slot: TimerSlot, now: datetime | None = None) -> bytes:

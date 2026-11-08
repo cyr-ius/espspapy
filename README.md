@@ -71,37 +71,50 @@ before driving the module, and the other way round.
 
 ### API
 
-| Call                                                  | Description                                                                  |
-| ----------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `async_pair(ssid, password, local_ip=None, *, bssid)` | Wi-Fi pairing, returns `PairingResult(mac, ip)`                              |
-| `get_local_ip()`                                      | IP address of this host on the LAN                                           |
-| `get_current_bssid(interface=None)`                   | BSSID of the 2.4 GHz access point this host is on (Linux), else `None`       |
-| `async_discover(timeout)`                             | LAN discovery, returns `list[SpaInfo]`                                       |
-| `Spa(host).async_identify()`                          | `SpaInfo(uid, ip, dtype)`                                                    |
-| `Spa(host).async_get_status()`                        | `SpaStatus`                                                                  |
-| `Spa(host).async_set_device(device, on)`              | Switch `Device.POWER`, `FILTER`, `HEATER`, `JETS`, `BUBBLES`, `SANITIZER`    |
-| `Spa(host).async_toggle(device)`                      | Raw toggle                                                                   |
-| `Spa(host).async_set_temperature(value)`              | Target temperature, in the device unit (10-40 °C or 50-104 °F)               |
-| `Spa(host).async_send_frame(frame)`                   | Raw hex frame (checksum added)                                               |
-| `Spa(host).async_heartbeat()`                         | Keep-alive, when `heartbeat_interval=None`                                   |
-| `Spa(host).async_set_timers(device, slots)`           | Replace the timers of `FILTER`, `HEATER` or `SANITIZER` (sanitizer untested) |
-| `build_timer_frame(device, slots)`                    | Timer frame without checksum, `[]` clears the timers                         |
+| Call                                                   | Description                                                                  |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `async_pair(ssid, password, local_ip=None, *, bssid)`  | Wi-Fi pairing, returns `PairingResult(mac, ip)`                              |
+| `get_local_ip()`                                       | IP address of this host on the LAN                                           |
+| `get_current_bssid(interface=None)`                    | BSSID of the 2.4 GHz access point this host is on (Linux), else `None`       |
+| `async_discover(timeout)`                              | LAN discovery, returns `list[SpaInfo]`                                       |
+| `Spa(host).async_identify()`                           | `SpaInfo(uid, ip, dtype)`                                                    |
+| `Spa(host).async_get_status()`                         | `SpaStatus`                                                                  |
+| `Spa(host).async_set_device(device, on)`               | Switch `Device.POWER`, `FILTER`, `HEATER`, `JETS`, `BUBBLES`, `SANITIZER`    |
+| `Spa(host).async_toggle(device)`                       | Raw toggle                                                                   |
+| `Spa(host).async_set_temperature(value)`               | Target temperature, in the device unit (10-40 °C or 50-104 °F)               |
+| `Spa(host).async_send_frame(frame)`                    | Raw hex frame (checksum added)                                               |
+| `Spa(host).async_heartbeat()`                          | Keep-alive, when `heartbeat_interval=None`                                   |
+| `Spa(host).async_set_filter_timer(hours, delay)`       | Run the filter for `hours`, after `delay` (`timedelta`, default now)         |
+| `Spa(host).async_set_heater_timer(hours, delay, temp)` | Heat for `hours` after `delay`, at `temp` (default: current target)          |
+| `Spa(host).async_set_sanitizer_timer(hours, delay)`    | Run the sanitizer for `hours` after `delay` (untested on a device)           |
+| `Spa(host).async_clear_timer(device)`                  | Clear the timers of `FILTER`, `HEATER` or `SANITIZER`                        |
+| `Spa(host).scheduled_timers`                           | Slots sent by this client that have not ended (the spa does not report them) |
+| `Spa(host).async_set_timers(device, slots)`            | Replace the timers of a device with a list of `TimerSlot`                    |
+| `build_timer_frame(device, slots)`                     | Timer frame without checksum, `[]` clears the timers                         |
 
 Exceptions derive from `SpaException`: `SpaConnectionError`,
 `TimeoutExceededError`, `SpaNotRespondingError` (the Wi-Fi module answered but
 not the controller board), `InvalidFrameError`, `CommandError`, `PairingError`.
 
-Timer slots are one-shot, relative to the time of sending:
+Timers are one-shot, relative to the time of sending, like the control panel
+(delayed start and duration). A new timer replaces the previous one of the same
+device. The spa does not report a timer before it starts, so the client keeps
+what it sent in `scheduled_timers`:
 
 ```python
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-from espspapy import Device, TimerSlot
+from espspapy import Device
 
-start = datetime.now() + timedelta(hours=2)
-await spa.async_set_timers(Device.HEATER, [TimerSlot(start, 3, temperature=38)])
-await spa.async_set_timers(Device.HEATER, [])  # clear
+await spa.async_set_filter_timer(4)  # filter now, for 4 hours
+await spa.async_set_heater_timer(3, delay=timedelta(hours=2))  # current target
+await spa.async_set_heater_timer(1, timedelta(minutes=15), temperature=38)
+print(spa.scheduled_timers)  # {Device.HEATER: (TimerSlot(start=…, duration=1, …),)}
+await spa.async_clear_timer(Device.HEATER)
 ```
+
+Several slots per device (up to 7) go through `async_set_timers()` with a list
+of `TimerSlot(start, duration, temperature)`.
 
 ### Command line
 
@@ -113,6 +126,10 @@ espspapy status 192.168.1.10
 espspapy monitor 192.168.1.10 --interval 10  # --changes: print only changes
 espspapy bubbles 192.168.1.10 on
 espspapy temp 192.168.1.10 38
+espspapy timer 192.168.1.10 filter --hours 4
+espspapy timer 192.168.1.10 heater --hours 3 --in 120 --temp 38  # in 2 hours
+espspapy timer 192.168.1.10 heater --clear
+espspapy shell 192.168.1.10  # debug shell of the Wi-Fi module
 espspapy --json status 192.168.1.10
 ```
 

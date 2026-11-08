@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 from contextlib import suppress
+from datetime import datetime, timedelta
 import json
 import logging
 import time
@@ -38,6 +39,18 @@ from .models import Device, SpaInfo, SpaStatus
 from .timers import TimerSlot, build_timer_frame
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _slot(hours: int, delay: timedelta, temperature: int | None = None) -> TimerSlot:
+    """Return a one-shot slot starting after ``delay``, rounded up to the minute.
+
+    Delays are truncated to the minute when encoded: rounding up keeps them.
+    """
+    if delay < timedelta():
+        raise ValueError(f"Negative delay: {delay}")
+    start = datetime.now().astimezone() + delay + timedelta(seconds=59)
+    return TimerSlot(start.replace(second=0, microsecond=0), hours, temperature)
+
 
 RETRYABLE_ERRORS = (
     SpaConnectionError,
@@ -80,6 +93,7 @@ class Spa:
         self.retry_delay = retry_delay
         self.heartbeat_interval = heartbeat_interval
         self.last_status: SpaStatus | None = None
+        self._timers: dict[Device, tuple[TimerSlot, ...]] = {}
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
@@ -192,15 +206,14 @@ class Spa:
         """Replace the timers of the filter, heater or sanitizer.
 
         Slots are sent as delays from now; an empty list clears the timers.
-        The control board applies timer frames without answering (the module
-        then reports ``timeout``): the frame is sent once, never retried, and
-        the status is read afterwards. Check its timer bytes to confirm.
+        The frame is sent once, never retried (the board may not answer: the
+        module then reports ``timeout``), and the status is read afterwards.
+        The board does not report slots before they start: they are
+        remembered in :attr:`scheduled_timers`.
         """
-        report = await self._exchange(
-            MSG_TYPE_COMMAND,
-            with_checksum(build_timer_frame(device, slots)),
-            MSG_TYPE_REPORT,
-        )
+        frame = with_checksum(build_timer_frame(device, slots))
+        report = await self._exchange(MSG_TYPE_COMMAND, frame, MSG_TYPE_REPORT)
+        self._timers[device] = tuple(slots)
         try:
             self.last_status = SpaStatus.from_frame(str(report.get("data", "")))
         except InvalidFrameError:
@@ -208,6 +221,61 @@ class Spa:
         else:
             return self.last_status
         return await self.async_get_status()
+
+    async def async_set_filter_timer(
+        self, hours: int, delay: timedelta = timedelta()
+    ) -> SpaStatus:
+        """Run the filter for ``hours``, starting after ``delay``."""
+        return await self.async_set_timers(Device.FILTER, [_slot(hours, delay)])
+
+    async def async_set_sanitizer_timer(
+        self, hours: int, delay: timedelta = timedelta()
+    ) -> SpaStatus:
+        """Run the sanitizer for ``hours``, starting after ``delay``."""
+        return await self.async_set_timers(Device.SANITIZER, [_slot(hours, delay)])
+
+    async def async_set_heater_timer(
+        self,
+        hours: int,
+        delay: timedelta = timedelta(),
+        temperature: int | None = None,
+    ) -> SpaStatus:
+        """Heat for ``hours`` after ``delay``, like the control panel.
+
+        ``temperature`` is in the unit of the spa, the current target when
+        omitted. The heater (and the filter) stop at the end of the slot.
+        """
+        status = await self.async_get_status()
+        if temperature is None:
+            temperature = status.target_temperature
+            if temperature is None:
+                raise CommandError("Unknown target temperature, give one")
+        low, high = status.temperature_range
+        if not low <= temperature <= high:
+            raise CommandError(f"Temperature {temperature} out of range {low}-{high}")
+        if status.fahrenheit:
+            # Slots carry °C, like the mobile app.
+            temperature = round((temperature - 32) / 1.8)
+        slot = _slot(hours, delay, temperature)
+        return await self.async_set_timers(Device.HEATER, [slot])
+
+    async def async_clear_timer(self, device: Device) -> SpaStatus:
+        """Clear the timers of the filter, heater or sanitizer."""
+        return await self.async_set_timers(device, [])
+
+    @property
+    def scheduled_timers(self) -> dict[Device, tuple[TimerSlot, ...]]:
+        """Return the slots sent by this client that have not ended yet.
+
+        The board does not report them before they start, and this client does
+        not see changes made from the control panel or another client.
+        """
+        now = datetime.now().astimezone()
+        timers = {
+            device: tuple(slot for slot in slots if slot.end > now)
+            for device, slots in self._timers.items()
+        }
+        return {device: slots for device, slots in timers.items() if slots}
 
     async def _async_request(
         self, msg_type: int, data: str, answer_type: int

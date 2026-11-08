@@ -6,8 +6,10 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from espspapy import Device, Spa, TimerSlot, build_timer_frame
-from espspapy.helpers import checksum
+from espspapy import CommandError, Device, Spa, TimerSlot, build_timer_frame
+from espspapy.cli import _set_timer, build_parser
+from espspapy.helpers import checksum, with_checksum
+from espspapy.spa import _slot
 from espspapy.timers import encode_slot
 
 from .conftest import FakeSpa
@@ -94,3 +96,88 @@ async def test_set_timers_without_answer(fake_spa: FakeSpa) -> None:
     assert status is not None
     sent = [msg["data"] for msg in fake_spa.received if msg["type"] == 1]
     assert [frame[:10] for frame in sent] == ["8888280F09", "8888060FEE"]
+
+
+def sent_timer_frames(fake_spa: FakeSpa) -> list[str]:
+    """Return the timer frames received by the fake spa."""
+    frames = [str(msg["data"]) for msg in fake_spa.received if msg["type"] == 1]
+    return [frame for frame in frames if frame.startswith("8888280F")]
+
+
+async def test_heater_timer_like_the_panel(fake_spa: FakeSpa) -> None:
+    """Heater in 2 hours for 3 hours at the current target (38 °C)."""
+    async with Spa("127.0.0.1", fake_spa.port, heartbeat_interval=None) as spa:
+        await spa.async_set_heater_timer(3, timedelta(hours=2))
+        scheduled = spa.scheduled_timers
+    (frame,) = sent_timer_frames(fake_spa)
+    # Slot: 2 h 0 min before the start, 3 hours, day bit, 38 °C.
+    assert frame.startswith("8888280F0A55" + "020003" + "0126")
+    assert [slot.duration for slot in scheduled[Device.HEATER]] == [3]
+
+
+async def test_heater_timer_fahrenheit(fake_spa: FakeSpa) -> None:
+    """A °F target is sent in °C, like the mobile app."""
+    fake_spa.target = 100
+    async with Spa("127.0.0.1", fake_spa.port, heartbeat_interval=None) as spa:
+        await spa.async_set_heater_timer(1, temperature=100)
+    (frame,) = sent_timer_frames(fake_spa)
+    assert frame[20:22] == "26"  # 100 °F = 38 °C
+
+
+async def test_heater_timer_out_of_range(fake_spa: FakeSpa) -> None:
+    """The target is checked against the spa unit before sending."""
+    async with Spa("127.0.0.1", fake_spa.port, heartbeat_interval=None) as spa:
+        with pytest.raises(CommandError):
+            await spa.async_set_heater_timer(1, temperature=41)
+    assert not sent_timer_frames(fake_spa)
+
+
+async def test_filter_and_sanitizer_timers(fake_spa: FakeSpa) -> None:
+    """Filter now for 4 hours, sanitizer in 30 minutes for 3 hours."""
+    async with Spa("127.0.0.1", fake_spa.port, heartbeat_interval=None) as spa:
+        await spa.async_set_filter_timer(4)
+        await spa.async_set_sanitizer_timer(3, timedelta(minutes=30))
+        assert set(spa.scheduled_timers) == {Device.FILTER, Device.SANITIZER}
+    filter_frame, sanitizer_frame = sent_timer_frames(fake_spa)
+    assert filter_frame.startswith("8888280F0955" + "0000040100")
+    assert sanitizer_frame.startswith("8888280F0B55" + "001E030100")
+
+
+async def test_clear_timer(fake_spa: FakeSpa) -> None:
+    """Clearing sends an empty list and forgets the slots."""
+    async with Spa("127.0.0.1", fake_spa.port, heartbeat_interval=None) as spa:
+        await spa.async_set_filter_timer(2)
+        await spa.async_clear_timer(Device.FILTER)
+        assert spa.scheduled_timers == {}
+    assert sent_timer_frames(fake_spa)[-1] == with_checksum("8888280F09" + "00" * 36)
+
+
+def test_scheduled_timers_drop_ended_slots() -> None:
+    """Slots that have ended are not reported."""
+    spa = Spa("127.0.0.1")
+    now = datetime.now().astimezone()
+    ended = TimerSlot(now - timedelta(hours=3), 2)
+    running = TimerSlot(now - timedelta(hours=1), 2)
+    spa._timers = {Device.FILTER: (ended,), Device.HEATER: (running,)}
+    assert spa.scheduled_timers == {Device.HEATER: (running,)}
+
+
+def test_negative_delay() -> None:
+    """A delay cannot be negative."""
+    with pytest.raises(ValueError, match="Negative delay"):
+        _slot(1, timedelta(minutes=-1))
+
+
+async def test_cli_timer(fake_spa: FakeSpa) -> None:
+    """espspapy timer: heater in 15 minutes, --temp refused for the filter."""
+    parser = build_parser()
+    heater = parser.parse_args(
+        ["timer", "h", "heater", "--hours", "1", "--in", "15", "--temp", "28"]
+    )
+    wrong = parser.parse_args(["timer", "h", "filter", "--hours", "2", "--temp", "28"])
+    async with Spa("127.0.0.1", fake_spa.port, heartbeat_interval=None) as spa:
+        await _set_timer(spa, heater)
+        with pytest.raises(ValueError, match="only for the heater"):
+            await _set_timer(spa, wrong)
+    (frame,) = sent_timer_frames(fake_spa)
+    assert frame.startswith("8888280F0A55" + "000F01011C")
