@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import math
 import os
 import socket
 import struct
@@ -20,6 +21,21 @@ def with_checksum(frame: str) -> str:
     """Return the hex frame followed by its checksum."""
     frame = frame.upper()
     return frame + checksum(frame)
+
+
+def _round_half_up(value: float) -> int:
+    """Round like the mobile app (``RoundingMode.HALF_UP``), not to even."""
+    return math.floor(value + 0.5)
+
+
+def celsius_to_fahrenheit(value: int) -> int:
+    """Convert a whole °C temperature to whole °F."""
+    return _round_half_up(value * 1.8 + 32)
+
+
+def fahrenheit_to_celsius(value: int) -> int:
+    """Convert a whole °F temperature to whole °C."""
+    return _round_half_up((value - 32) / 1.8)
 
 
 def work_hours(value: int) -> float | None:

@@ -25,6 +25,8 @@ from .const import (
     RESULT_OK,
     RETRY_DELAY,
     SPA_TCP_PORT,
+    TEMP_RANGE_CELSIUS,
+    TEMP_RANGE_FAHRENHEIT,
 )
 from .exceptions import (
     CommandError,
@@ -34,7 +36,7 @@ from .exceptions import (
     SpaNotRespondingError,
     TimeoutExceededError,
 )
-from .helpers import with_checksum
+from .helpers import celsius_to_fahrenheit, fahrenheit_to_celsius, with_checksum
 from .models import Device, SpaInfo, SpaStatus
 from .timers import TimerSlot, build_timer_frame
 
@@ -200,6 +202,28 @@ class Spa:
             raise CommandError(f"Temperature {value} out of range {low}-{high}")
         return await self.async_send_frame(f"{FRAME_SET_TEMPERATURE}{value:02X}")
 
+    async def async_set_unit(self, fahrenheit: bool) -> SpaStatus:
+        """Switch the spa to °F or °C, keeping the target temperature.
+
+        The spa has no unit command: it takes the unit of the target it
+        receives (10-40: °C, 50-104: °F), like the mobile app does it. The
+        current target is converted and sent in the other unit.
+        """
+        current = await self.async_get_status()
+        if current.fahrenheit == fahrenheit:
+            return current
+        target = current.target_temperature
+        if target is None:
+            raise CommandError("Unknown target temperature, set one first")
+        if fahrenheit:
+            low, high = TEMP_RANGE_FAHRENHEIT
+            value = celsius_to_fahrenheit(target)
+        else:
+            low, high = TEMP_RANGE_CELSIUS
+            value = fahrenheit_to_celsius(target)
+        value = min(max(value, low), high)
+        return await self.async_send_frame(f"{FRAME_SET_TEMPERATURE}{value:02X}")
+
     async def async_set_timers(
         self, device: Device, slots: Sequence[TimerSlot]
     ) -> SpaStatus:
@@ -255,7 +279,7 @@ class Spa:
             raise CommandError(f"Temperature {temperature} out of range {low}-{high}")
         if status.fahrenheit:
             # Slots carry °C, like the mobile app.
-            temperature = round((temperature - 32) / 1.8)
+            temperature = fahrenheit_to_celsius(temperature)
         slot = _slot(hours, delay, temperature)
         return await self.async_set_timers(Device.HEATER, [slot])
 
