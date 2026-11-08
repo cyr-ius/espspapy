@@ -83,3 +83,14 @@ async def test_set_timers(fake_spa: FakeSpa) -> None:
     sent = fake_spa.received[-1]["data"]
     assert sent.startswith("8888280F0955")
     assert checksum(sent[:-2]) == sent[-2:]
+
+
+async def test_set_timers_without_answer(fake_spa: FakeSpa) -> None:
+    """Like the real board: no answer to the timer frame, sent once, status read."""
+    slot = TimerSlot(datetime.now(UTC) + timedelta(hours=2), 4)
+    fake_spa.not_responding = 1
+    async with Spa("127.0.0.1", fake_spa.port, heartbeat_interval=None) as spa:
+        status = await spa.async_set_timers(Device.FILTER, [slot])
+    assert status is not None
+    sent = [msg["data"] for msg in fake_spa.received if msg["type"] == 1]
+    assert [frame[:10] for frame in sent] == ["8888280F09", "8888060FEE"]

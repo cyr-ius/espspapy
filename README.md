@@ -84,7 +84,7 @@ before driving the module, and the other way round.
 | `Spa(host).async_set_temperature(value)`              | Target temperature, in the device unit (10-40 °C or 50-104 °F)            |
 | `Spa(host).async_send_frame(frame)`                   | Raw hex frame (checksum added)                                            |
 | `Spa(host).async_heartbeat()`                         | Keep-alive, when `heartbeat_interval=None`                                |
-| `Spa(host).async_set_timers(device, slots)`           | Replace the timers of `FILTER`, `HEATER` or `SANITIZER` (untested)        |
+| `Spa(host).async_set_timers(device, slots)`           | Replace the timers of `FILTER`, `HEATER` or `SANITIZER` (partly tested)   |
 | `build_timer_frame(device, slots)`                    | Timer frame without checksum, `[]` clears the timers                      |
 
 Exceptions derive from `SpaException`: `SpaConnectionError`,
@@ -110,7 +110,7 @@ espspapy discover
 espspapy pair --ssid MyWifi  # BSSID detected if this host is on 2.4 GHz Wi-Fi
 espspapy pair --ssid MyWifi --bssid 00:00:1A:2B:3C:4D
 espspapy status 192.168.1.10
-espspapy monitor 192.168.1.10 --interval 10
+espspapy monitor 192.168.1.10 --interval 10  # --changes: print only changes
 espspapy bubbles 192.168.1.10 on
 espspapy temp 192.168.1.10 38
 espspapy --json status 192.168.1.10
@@ -131,13 +131,23 @@ Message types: `0` heartbeat, `1` command, `2` status report, `3` identification
 Frames are hex strings followed by the checksum `255 - sum(bytes) % 255`.
 The status request is `8888060FEE0F01DA`; the answer is `FFFF110F01…`:
 
-| Byte  | Content                                                                                                  |
-| ----- | -------------------------------------------------------------------------------------------------------- |
-| 5     | Devices: bit 0 power, 1 filter, 2 heater, 3 jets, 4 bubbles, 5 sanitizer, 6 heater (temperature reached) |
-| 6     | Flashing: bit 0 error code                                                                               |
-| 7     | Water temperature, or error code + 100 (E81…E99, 200 = END)                                              |
-| 12-14 | Filter, sanitizer, heater timers (bit 7 active, half hours)                                              |
-| 15    | Target temperature (10-40 °C or 50-104 °F)                                                               |
+| Byte  | Content                                                                            |
+| ----- | ---------------------------------------------------------------------------------- |
+| 5     | Devices: bit 0 power, 1 filter, 2 heater (enabled), 3 jets, 4 bubbles, 5 sanitizer |
+| 6     | Flashing: bit 0 error code                                                         |
+| 7     | Water temperature, or error code + 100 (E81…E99, 200 = END)                        |
+| 12-14 | Filter, sanitizer, heater timers (bit 7 active, see below)                         |
+| 15    | Target temperature (10-40 °C or 50-104 °F)                                         |
+
+Bit 2 means the heater function is enabled, not that the water is being
+heated, and no byte says whether the heater element runs. With the heater
+enabled, the frame reads `07` at 27 °C both for a 24 °C target (panel LED
+green, idle) and for a 28 °C target (LED red, heating). The board measures
+decimals: at 28 °C displayed for a 28 °C target, it kept heating for about an
+hour, then the LED turned green, with the same frame. So `SpaStatus.heating` is
+`True` below the target, `False` above it or with the heater off, and `None`
+(unknown) when the water is displayed at the target. Bit 6, once assumed to
+mean "temperature reached", was never seen set.
 
 The toggle and temperature frames belong to command set 1/3; other models may
 use other frames. Switching the heater on also starts the filter (bits 1 and 2
@@ -165,6 +175,12 @@ are expected to behave the same way, which is not confirmed.
   every day at the same time), sanitizer 3, 5 or 8 hours, heater start delay 0
   to 120 hours and heater duration 0 to 48 hours. The controller only counts
   down: it has no clock.
+- Timer bytes 12-14 of the status: the filter set to 2, 4 and 6 hours from the
+  control panel reads `82`, `86` and `8A`, as does a 2-hour filter frame sent by
+  this library (`82`). The value drops by one every 30 minutes (4 hours set at
+  15:40: `86`, then `85` at 16:10), so the library decodes the low 7 bits as
+  `bits / 2 + 1` remaining hours. Whether the last hour runs after the byte is
+  back to `80`, and the sanitizer and heater bytes, are not checked yet.
 - Because of the power limit, only these combinations can run together: filter,
   heater and bubbles; filter, heater and jets; filter, bubbles, sanitizer and
   jets (without the heater).
@@ -178,9 +194,12 @@ are expected to behave the same way, which is not confirmed.
 The module has no clock: the decompiled mobile client sends each timer list as
 delays from the time of sending, and resends it after every change.
 `Spa.async_set_timers()` sends one-shot slots of the filter, heater or
-sanitizer; the layout below comes from the decompiled code, only the combined
-frame was seen in a capture, and **these frames were not tested on a device
-yet** (see `debug.py`).
+sanitizer; the layout below comes from the decompiled code, and only the
+combined frame was seen in a capture. A one-slot filter frame (start now, 2
+hours) was tested on a device: the control board applies it but does not
+answer, so the module reports `timeout`. The frame is therefore sent once,
+without retry, and the status is read afterwards. The other slots (delayed
+start, several slots, heater, sanitizer) are still untested (see `debug.py`).
 
 | Frame        | Content                                                                  |
 | ------------ | ------------------------------------------------------------------------ |
@@ -208,6 +227,9 @@ not sent either.
 
 ### Network and security
 
+- The module forwards every command to the control board over a single serial
+  link: with another client connected (Home Assistant, the mobile app), answers
+  often come back as `timeout` or `mcu_busy`.
 - The debug shell on TCP port 23 is open without authentication: keep the
   module on a trusted network.
 - The module also connects to a cloud service

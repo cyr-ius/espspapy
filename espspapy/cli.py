@@ -28,13 +28,21 @@ def _format_status(status: SpaStatus) -> str:
         timer = f" (timer {hours:g} h)" if hours is not None else ""
         return ("on" if value else "off") + timer
 
+    def heater_state() -> str:
+        text = state(status.heater, status.heater_hours)
+        if status.heater:
+            text += {True: " (heating)", False: " (idle)", None: " (heating?)"}[
+                status.heating
+            ]
+        return text
+
     def temperature(value: int | None) -> str:
         return f"{value} {unit}" if value is not None else "?"
 
     lines = [
         f"Power        : {state(status.power)}",
         f"Filter       : {state(status.filter, status.filter_hours)}",
-        f"Heater       : {state(status.heater, status.heater_hours)}",
+        f"Heater       : {heater_state()}",
         f"Jets         : {state(status.jets)}",
         f"Bubbles      : {state(status.bubbles)}",
         f"Sanitizer    : {state(status.sanitizer, status.sanitizer_hours)}",
@@ -85,7 +93,7 @@ async def _run(args: argparse.Namespace) -> int:
             previous = None
             while True:
                 status = await spa.async_get_status()
-                if status.raw != previous:
+                if not args.changes or status.raw != previous:
                     previous = status.raw
                     if not args.json:
                         print(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -133,6 +141,9 @@ def build_parser() -> argparse.ArgumentParser:
     monitor = sub.add_parser("monitor", help="follow the status (Ctrl+C to stop)")
     monitor.add_argument("host")
     monitor.add_argument("--interval", type=float, default=30.0)
+    monitor.add_argument(
+        "--changes", action="store_true", help="print only when the status changes"
+    )
 
     for device in Device:
         name = device.name.lower()

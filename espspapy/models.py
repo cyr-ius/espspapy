@@ -10,7 +10,6 @@ from typing import Any
 from .const import (
     ERROR_CODE_END,
     ERROR_CODE_MIN,
-    HEATER_STANDBY_BIT,
     TEMP_RANGE_CELSIUS,
     TEMP_RANGE_FAHRENHEIT,
 )
@@ -72,6 +71,20 @@ class PairingResult:
     ip: str
 
 
+def _heating(heater: bool, current: int | None, target: int | None) -> bool | None:
+    """Return whether the heater element runs, ``None`` when unknown.
+
+    The frame does not say it (the control panel LED does: red heating, green
+    idle, both read ``0x07``). The board measures decimals: with the water
+    displayed at the target, it may heat (up to about an hour was seen) or not.
+    """
+    if not heater:
+        return False
+    if current is None or target is None or current == target:
+        return None
+    return current < target
+
+
 @dataclass(frozen=True, slots=True)
 class SpaStatus:
     """Decoded ``FFFF…0F01`` status frame."""
@@ -79,7 +92,7 @@ class SpaStatus:
     power: bool
     filter: bool
     heater: bool
-    heating: bool
+    heating: bool | None
     jets: bool
     bubbles: bool
     sanitizer: bool
@@ -122,19 +135,20 @@ class SpaStatus:
         def bit(position: int) -> bool:
             return bool(flags & 1 << position)
 
+        current = temp_or_error if temp_or_error < ERROR_CODE_MIN else None
+        target_temperature = target if fahrenheit or celsius else None
+        heater = bit(Device.HEATER.bit)
         return cls(
             power=bit(Device.POWER.bit),
             filter=bit(Device.FILTER.bit),
-            heater=bit(Device.HEATER.bit) or bit(HEATER_STANDBY_BIT),
-            heating=bit(Device.HEATER.bit),
+            heater=heater,
+            heating=_heating(heater, current, target_temperature),
             jets=bit(Device.JETS.bit),
             bubbles=bit(Device.BUBBLES.bit),
             sanitizer=bit(Device.SANITIZER.bit),
             fahrenheit=fahrenheit,
-            current_temperature=(
-                temp_or_error if temp_or_error < ERROR_CODE_MIN else None
-            ),
-            target_temperature=target if fahrenheit or celsius else None,
+            current_temperature=current,
+            target_temperature=target_temperature,
             error_code=error_code,
             filter_hours=work_hours(data[12]),
             sanitizer_hours=work_hours(data[13]),

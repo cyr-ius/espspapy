@@ -188,13 +188,15 @@ class Spa:
 
     async def async_set_timers(
         self, device: Device, slots: Sequence[TimerSlot]
-    ) -> SpaStatus | None:
+    ) -> SpaStatus:
         """Replace the timers of the filter, heater or sanitizer.
 
         Slots are sent as delays from now; an empty list clears the timers.
-        Returns the status when the answer is a status frame.
+        The control board applies timer frames without answering (the module
+        then reports ``timeout``): the frame is sent once, never retried, and
+        the status is read afterwards. Check its timer bytes to confirm.
         """
-        report = await self._async_request(
+        report = await self._exchange(
             MSG_TYPE_COMMAND,
             with_checksum(build_timer_frame(device, slots)),
             MSG_TYPE_REPORT,
@@ -202,9 +204,10 @@ class Spa:
         try:
             self.last_status = SpaStatus.from_frame(str(report.get("data", "")))
         except InvalidFrameError:
-            _LOGGER.debug("Timer answer is not a status: %s", report)
-            return None
-        return self.last_status
+            _LOGGER.debug("Timer frame sent, no status in the answer: %s", report)
+        else:
+            return self.last_status
+        return await self.async_get_status()
 
     async def _async_request(
         self, msg_type: int, data: str, answer_type: int

@@ -10,7 +10,7 @@ read before and after each frame (timer bytes 12-14)::
     python debug.py --host 192.168.1.10 --send -v filter-now clear-filter
 
 Start with ``filter-now``: like the control panel, the filter should start at
-once and the status should count down 2 hours in byte 12.
+once and the status should read 2 hours in byte 12 (0x82).
 
 The timer frames come from the decompiled mobile client and were never tested
 on a real device: watch the device, and clear the timers when done
@@ -45,17 +45,17 @@ def _tomorrow_at(hour: int) -> datetime:
 
 
 EXAMPLES: dict[str, Callable[[], Example]] = {
-    # Immediate start, like the control panel: byte 12 should become 0x84.
+    # Immediate start, like the control panel: byte 12 should become 0x82.
     "filter-now": lambda: (
         Device.FILTER,
         [TimerSlot(_in(0), 2)],
-        "filter now for 2 hours (expected byte 12: 84)",
+        "filter now for 2 hours (expected byte 12: 82)",
     ),
-    # Byte 13 should become 0x86.
+    # Byte 13 should become 0x84 if it is encoded like the filter (unchecked).
     "sanitizer-now": lambda: (
         Device.SANITIZER,
         [TimerSlot(_in(0), 3)],
-        "sanitizer now for 3 hours (expected byte 13: 86)",
+        "sanitizer now for 3 hours (expected byte 13: 84?)",
     ),
     "filter": lambda: (
         Device.FILTER,
@@ -105,7 +105,7 @@ async def send(host: str, names: list[str]) -> None:
             device, slots, label = EXAMPLES[name]()
             print(f"\n{name}: {label}")
             status = await spa.async_set_timers(device, slots)
-            print(f"Answer        : {timers(status) if status else 'not a status'}")
+            print(f"Answer        : {timers(status)}")
             await asyncio.sleep(2)
             print(f"Status        : {timers(await spa.async_get_status())}")
 
