@@ -82,6 +82,7 @@ before driving the module, and the other way round.
 | `Spa(host).async_set_device(device, on)`               | Switch `Device.POWER`, `FILTER`, `HEATER`, `JETS`, `BUBBLES`, `SANITIZER`    |
 | `Spa(host).async_toggle(device)`                       | Raw toggle                                                                   |
 | `Spa(host).async_set_temperature(value)`               | Target temperature, in the device unit (10-40 °C or 50-104 °F)               |
+| `Spa(host).async_set_unit(fahrenheit)`                 | Switch the spa to °F or °C, keeping the target temperature                   |
 | `Spa(host).async_send_frame(frame)`                    | Raw hex frame (checksum added)                                               |
 | `Spa(host).async_heartbeat()`                          | Keep-alive, when `heartbeat_interval=None`                                   |
 | `Spa(host).async_set_filter_timer(hours, delay)`       | Run the filter for `hours`, after `delay` (`timedelta`, default now)         |
@@ -148,6 +149,7 @@ espspapy status 192.168.1.10
 espspapy monitor 192.168.1.10 --interval 10  # --changes: print only changes
 espspapy bubbles 192.168.1.10 on
 espspapy temp 192.168.1.10 38
+espspapy unit 192.168.1.10 f  # or c
 espspapy timer 192.168.1.10 filter --hours 4
 espspapy timer 192.168.1.10 heater --hours 3 --in 120 --temp 38  # in 2 hours
 espspapy timer 192.168.1.10 heater --clear
@@ -188,7 +190,20 @@ decimals: at 28 °C displayed for a 28 °C target, it kept heating for about an
 hour, then the LED turned green, with the same frame. So `SpaStatus.heating` is
 `True` below the target, `False` above it or with the heater off, and `None`
 (unknown) when the water is displayed at the target. Bit 6, once assumed to
-mean "temperature reached", was never seen set.
+mean "temperature reached", was never seen set. The command set that the
+Intex cloud served for this model (type 3, `TESPA02`: the six toggles,
+`8888050F0C` for the target and `8888060FEE0F01` for the status) has no other
+status request, so the heating state cannot be read another way. The mobile
+app shows the red and green heater LEDs only for newer models with `A5…`
+frames.
+
+The spa has no unit command: it takes the unit of the target temperature it
+receives, 10-40 in °C and 50-104 in °F, and then reports the water temperature
+in that unit too. Sending 82 to a spa in °C (target 24 °C) switched it to °F
+(water `52` = 82 °F, target `52`); sending 24 switched it back. The mobile app
+switches the unit the same way, so `async_set_unit()` converts the current
+target before sending it, rounded half up like the app: a 24 °C target became
+75 °F, then 24 °C again.
 
 The toggle and temperature frames belong to command set 1/3; other models may
 use other frames. Switching the heater on also starts the filter (bits 1 and 2
@@ -325,6 +340,9 @@ not sent either.
   [user manual of a 2024 model (351IO), in French](https://www.irripiscine.fr/media/akeneo_connector/asset_files/N/o/Notice_258b.pdf)
 - Off-state temperature value and heater/filter dependency:
   [adrianjagielak/homebridge-intex-plus](https://github.com/adrianjagielak/homebridge-intex-plus/blob/latest/src/spaAccessory.ts)
+- Command set served by the Intex cloud for this model (type 3, `TESPA02`) and
+  timer decoding (`bits / 2 + 1` hours, found independently):
+  [TA2k/ioBroker.intex, main.js](https://github.com/TA2k/ioBroker.intex/blob/master/main.js)
 
 ## Interoperability
 

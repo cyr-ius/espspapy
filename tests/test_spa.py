@@ -13,6 +13,7 @@ from espspapy import (
     SpaConnectionError,
     SpaNotRespondingError,
 )
+from espspapy.helpers import celsius_to_fahrenheit, fahrenheit_to_celsius
 
 from .conftest import UID, FakeSpa
 
@@ -107,3 +108,26 @@ async def test_heartbeat_without_connection(fake_spa: FakeSpa) -> None:
     spa = make_spa(fake_spa)
     await spa.async_heartbeat()
     assert fake_spa.received == []
+
+
+async def test_set_unit(fake_spa: FakeSpa) -> None:
+    """Switching the unit sends the same target in the other unit."""
+    async with Spa("127.0.0.1", fake_spa.port, heartbeat_interval=None) as spa:
+        status = await spa.async_set_unit(True)
+        assert status.fahrenheit and status.target_temperature == 100  # 38 °C
+        status = await spa.async_set_unit(False)
+        assert not status.fahrenheit and status.target_temperature == 38
+        sent = len(fake_spa.received)
+        # Already in °C: nothing is sent but the status request.
+        assert not (await spa.async_set_unit(False)).fahrenheit
+    frames = [str(msg["data"]) for msg in fake_spa.received[sent:]]
+    assert not any(frame.startswith("8888050F0C") for frame in frames)
+
+
+@pytest.mark.parametrize(
+    ("celsius", "fahrenheit"), [(10, 50), (24, 75), (28, 82), (38, 100), (40, 104)]
+)
+def test_unit_conversion(celsius: int, fahrenheit: int) -> None:
+    """Whole degrees convert both ways, rounded half up like the app."""
+    assert celsius_to_fahrenheit(celsius) == fahrenheit
+    assert fahrenheit_to_celsius(fahrenheit) == celsius

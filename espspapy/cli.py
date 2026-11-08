@@ -161,6 +161,8 @@ async def _run(args: argparse.Namespace) -> int:
                 await asyncio.sleep(args.interval)
         elif args.command == "temp":
             _print(await spa.async_set_temperature(args.value), args.json)
+        elif args.command == "unit":
+            _print(await spa.async_set_unit(args.unit == "f"), args.json)
         elif args.command == "timer":
             _print(await _set_timer(spa, args), args.json)
         elif args.command == "raw":
@@ -215,6 +217,10 @@ def build_parser() -> argparse.ArgumentParser:
     temp = sub.add_parser("temp", help="set the target temperature")
     temp.add_argument("host")
     temp.add_argument("value", type=int)
+
+    unit = sub.add_parser("unit", help="switch the temperature unit (°C or °F)")
+    unit.add_argument("host")
+    unit.add_argument("unit", choices=("c", "f"))
 
     shell = sub.add_parser(
         "shell", help="interactive debug shell of the Wi-Fi module (port 23)"
